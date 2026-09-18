@@ -1,12 +1,46 @@
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import type { NextFunction, Request, Response } from 'express';
+import rateLimit, { ipKeyGenerator, type RateLimitRequestHandler } from 'express-rate-limit';
+import { ErrorCode } from '../errors/errorCodes.js';
 
-export const createRateLimiter = (max: number, windowMinutes: number = 15) =>
+/**
+ * Builds a 429 response that matches the centralized error envelope used by
+ * `errorHandler` (`{ success, message, error: { code, message, type } }`).
+ *
+ * Previously each limiter returned a bespoke shape (`{ error: '...' }`), so the
+ * frontend had to special-case rate-limit failures and could not map them to
+ * i18n copy by error code. Every limiter now emits the same envelope plus a
+ * `Retry-After` header so clients can back off deterministically.
+ */
+const rateLimitHandler =
+  (message: string, extraErrorFields?: Record<string, unknown>) =>
+  (_req: Request, res: Response, _next: NextFunction, options: { windowMs?: number }): void => {
+    const retryAfterSeconds = Math.max(1, Math.ceil((options?.windowMs ?? 60_000) / 1000));
+    res.setHeader('Retry-After', retryAfterSeconds);
+
+    res.status(429).json({
+      success: false,
+      message,
+      error: {
+        code: ErrorCode.RATE_LIMIT_EXCEEDED,
+        message,
+        type: 'RATE_LIMIT',
+        retryAfterSeconds,
+        ...extraErrorFields,
+      },
+    });
+  };
+
+export const createRateLimiter = (
+  max: number,
+  windowMinutes: number = 15,
+): RateLimitRequestHandler =>
   rateLimit({
     windowMs: windowMinutes * 60 * 1000,
     max,
-    message: { error: 'Too many requests, please try again later.' },
+    keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
     standardHeaders: true,
     legacyHeaders: false,
+    handler: rateLimitHandler('Too many requests, please try again later.'),
   });
 
 export const globalRateLimiter = createRateLimiter(100);
@@ -17,14 +51,10 @@ export const adminRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
-  message: { success: false, message: 'Too many admin requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === 'test',
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many admin requests, please try again later.'),
 });
 
 // Auth endpoints: 10 req/min per IP (stricter rate limiting for brute-force protection)
@@ -32,16 +62,9 @@ export const challengeRateLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 10,
   keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
-  message: {
-    success: false,
-    message: 'Too many challenge requests, please try again later.',
-  },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many challenge requests, please try again later.'),
 });
 
 export const loginRateLimiter = rateLimit({
@@ -49,45 +72,27 @@ export const loginRateLimiter = rateLimit({
   max: 5,
   keyGenerator: (req) =>
     `${ipKeyGenerator(req.ip ?? 'unknown')}:${req.body?.publicKey ?? 'unknown'}`,
-  message: {
-    success: false,
-    message: 'Too many login attempts, please try again later.',
-  },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many login attempts, please try again later.'),
 });
 
 export const ipLoginRateLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 5,
   keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
-  message: {
-    success: false,
-    message: 'Too many login attempts from this IP, please try again later.',
-  },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many login attempts from this IP, please try again later.'),
 });
 
 export const verifyRateLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 10,
   keyGenerator: (req) => ipKeyGenerator(req.ip ?? 'unknown'),
-  message: { success: false, message: 'Too many verification attempts' },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many verification attempts, please try again later.'),
 });
 
 // Simulation endpoints: 5 req/min per authenticated user
@@ -99,15 +104,8 @@ export const simulationRateLimiter = rateLimit({
     const user = (req as unknown as { user?: { publicKey: string } }).user;
     return user?.publicKey ?? ipKeyGenerator(req.ip ?? 'unknown');
   },
-  message: {
-    success: false,
-    message: 'Too many simulation requests, please try again later.',
-  },
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === 'test',
-  handler: (_req, res, _next, options) => {
-    res.setHeader('Retry-After', Math.ceil(options.windowMs / 1000));
-    res.status(429).json(options.message);
-  },
+  handler: rateLimitHandler('Too many simulation requests, please try again later.'),
 });
