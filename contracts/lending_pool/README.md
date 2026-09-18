@@ -9,7 +9,7 @@ A share-based (LP token) liquidity pool serving multiple token markets from a si
 - **Withdrawal cooldown**: Configurable per-token delay (in ledgers) between deposit and withdrawal.
 - **Minimum hold time**: 1-ledger minimum prevents flash-loan-style deposit/withdraw cycles in the same transaction.
 - **Donation-resistant share pricing**: Every share/asset conversion credits a virtual share and a virtual asset (the ERC-4626 offset), so tokens sent directly to the pool cannot be used to inflate the share price and round a later depositor out of their deposit.
-- **Emergency pause**: Admin can pause deposits/withdrawals; `emergency_withdraw` bypasses both pause and cooldown.
+- **Emergency pause**: Admin can pause deposits/withdrawals; `emergency_withdraw` bypasses both pause and cooldown but still enforces the one-ledger minimum hold time, so it cannot be used as a same-ledger flash exit.
 - **Admin governance**: Two-step admin transfer (`propose` + `accept`) and immediate `set_admin`.
 - **Upgradeable**: WASM-hash replacement with version tracking.
 
@@ -34,7 +34,7 @@ Up to one unit of the asset is not attributable to any holder: the virtual posit
 | `initialize(admin)`                           | One-time initialisation                  |
 | `deposit(provider, token, amount)`            | Deposit tokens, receive LP shares        |
 | `withdraw(provider, token, shares)`           | Redeem shares for underlying assets      |
-| `emergency_withdraw(provider, token, shares)` | Bypass pause and cooldown                |
+| `emergency_withdraw(provider, token, shares)` | Bypass pause and cooldown; the minimum hold still applies |
 | `collect_dust(token)`                         | Admin reclaims accumulated rounding dust |
 | `set_max_pool_size(token, max)`               | Set deposit cap (0 = unlimited)          |
 | `set_withdrawal_cooldown(ledgers)`            | Configure cooldown period                |

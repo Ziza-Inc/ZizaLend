@@ -531,17 +531,124 @@ fn test_emergency_withdraw_bypasses_pause_and_cooldown() {
     // Deposits are refused for unregistered tokens, so this fixture must open its
     // market explicitly before the pool will accept it.
     pool_client.allow_token(&token_id);
+    // A cooldown far longer than the one-ledger minimum hold, so this test shows the
+    // hatch bypassing the cooldown rather than merely satisfying it.
     pool_client.set_withdrawal_cooldown(&100);
 
     let provider = Address::generate(&env);
     stellar_asset_client.mint(&provider, &5_000);
+    let deposit_ledger = env.ledger().sequence();
     pool_client.deposit(&provider, &token_id, &1_500);
 
+    // The minimum hold time still applies to the hatch, so the same-ledger attempt
+    // is refused even though the pool is paused...
     pool_client.pause();
+    let refused = pool_client.try_emergency_withdraw(&provider, &token_id, &1_500);
+    assert!(
+        !matches!(refused, Ok(Ok(()))),
+        "the minimum hold time must still apply to the emergency hatch"
+    );
+    // No value moved: the provider put 1,500 of the 5,000 they minted into the pool.
+    assert_eq!(token_client.balance(&provider), 3_500);
+    assert_eq!(token_client.balance(&pool_id), 1_500);
+
+    // ...and one ledger later the deposit is out, well before the 100-ledger cooldown
+    // would have allowed an ordinary withdrawal.
+    env.ledger().set_sequence_number(deposit_ledger + 1);
     pool_client.emergency_withdraw(&provider, &token_id, &1_500);
 
     assert_eq!(token_client.balance(&provider), 5_000);
     assert_eq!(token_client.balance(&pool_id), 0);
+}
+
+// ── Flash-loan guard matrix ───────────────────────────────────────────────────
+//
+// The two guards are complementary rather than redundant: `withdrawal_cooldown` is
+// checked only when a cooldown is configured, and the one-ledger minimum hold is
+// checked only when one is not. These tests pin that the pair leaves no gap -- a
+// deposit and a withdrawal in the same ledger must be refused at *every* cooldown
+// setting, because `MINIMUM_HOLD_LEDGERS` is 1 and a configured cooldown is always
+// at least that.
+
+fn setup_guarded_pool(
+    env: &Env,
+    cooldown: u32,
+) -> (
+    LendingPoolClient<'_>,
+    Address,
+    StellarAssetClient<'_>,
+    TokenClient<'_>,
+) {
+    env.mock_all_auths();
+    let admin = Address::generate(env);
+    let (token_id, stellar, token_client) = create_token_contract(env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.allow_token(&token_id);
+    pool_client.set_withdrawal_cooldown(&cooldown);
+    (pool_client, token_id, stellar, token_client)
+}
+
+#[test]
+#[should_panic(expected = "minimum_hold_time_not_met")]
+fn test_same_ledger_withdrawal_with_cooldown_disabled_is_refused() {
+    let env = Env::default();
+    let (pool_client, token_id, stellar, _) = setup_guarded_pool(&env, 0);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+    pool_client.deposit(&provider, &token_id, &1_000);
+    pool_client.withdraw(&provider, &token_id, &1_000);
+}
+
+#[test]
+#[should_panic(expected = "withdrawal_cooldown_active")]
+fn test_same_ledger_withdrawal_with_a_one_ledger_cooldown_is_refused() {
+    let env = Env::default();
+    let (pool_client, token_id, stellar, _) = setup_guarded_pool(&env, 1);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+    pool_client.deposit(&provider, &token_id, &1_000);
+    pool_client.withdraw(&provider, &token_id, &1_000);
+}
+
+#[test]
+#[should_panic(expected = "withdrawal_cooldown_active")]
+fn test_same_ledger_withdrawal_with_the_default_cooldown_is_refused() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let (token_id, stellar, _) = create_token_contract(&env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    env.mock_all_auths();
+    pool_client.initialize(&admin);
+    pool_client.allow_token(&token_id);
+    assert_eq!(pool_client.get_withdrawal_cooldown(), 1_440);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+    pool_client.deposit(&provider, &token_id, &1_000);
+    pool_client.withdraw(&provider, &token_id, &1_000);
+}
+
+#[test]
+fn test_withdrawal_succeeds_once_the_minimum_hold_elapses() {
+    let env = Env::default();
+    let (pool_client, token_id, stellar, token_client) = setup_guarded_pool(&env, 0);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+    let deposit_ledger = env.ledger().sequence();
+    pool_client.deposit(&provider, &token_id, &1_000);
+
+    env.ledger().set_sequence_number(deposit_ledger + 1);
+    pool_client.withdraw(&provider, &token_id, &1_000);
+
+    // Exactly the principal back: shares and assets were equal, so the virtual
+    // offset's retained unit is the only difference.
+    assert_eq!(token_client.balance(&provider), 1_000);
 }
 
 // ── Deposit / Withdraw invariants ─────────────────────────────────────────────

@@ -396,14 +396,15 @@ impl LendingPool {
     /// than the deposit ledger plus `MINIMUM_HOLD_LEDGERS` **and** the
     /// withdrawal cooldown is set to 0 (since the cooldown already covers
     /// longer holds when configured).
-    fn assert_minimum_hold_elapsed(env: &Env, provider: &Address, token: &Address) {
-        let cooldown = Self::withdrawal_cooldown(env);
-        // When a longer cooldown is configured, it already prevents
-        // flash-loan behavior — skip the minimum hold check.
-        if cooldown >= Self::MINIMUM_HOLD_LEDGERS {
-            return;
-        }
-
+    /// Assert at least `MINIMUM_HOLD_LEDGERS` have elapsed since the provider's most
+    /// recent deposit, *regardless* of the configured cooldown.
+    ///
+    /// This is the form `emergency_withdraw` needs. That entry point skips the cooldown
+    /// check by design, so a guard that defers to the cooldown would leave it with no
+    /// guard at all -- which is exactly what happened: the hatch's docstring promised
+    /// the minimum hold time was enforced while the call went straight to
+    /// `redeem_shares`.
+    fn assert_share_held_for_minimum_ledgers(env: &Env, provider: &Address, token: &Address) {
         let Some(deposit_ledger) = Self::read_deposit_timestamp(env, provider, token) else {
             return;
         };
@@ -412,6 +413,23 @@ impl LendingPool {
         if current_ledger < deposit_ledger.saturating_add(Self::MINIMUM_HOLD_LEDGERS) {
             panic!("minimum_hold_time_not_met");
         }
+    }
+
+    /// Assert the minimum share hold time, deferring to the withdrawal cooldown when one
+    /// is configured.
+    ///
+    /// The two guards are complementary rather than redundant: this one covers the case
+    /// where the cooldown is disabled, and `assert_withdrawal_cooldown_elapsed` covers
+    /// the case where it is not. A configured cooldown is always at least
+    /// `MINIMUM_HOLD_LEDGERS`, so between them a deposit and a withdrawal in the same
+    /// ledger are refused at every cooldown setting -- but only on a path that reaches
+    /// *both* checks. `withdraw` does. Any entry point that skips one of them must use
+    /// `assert_share_held_for_minimum_ledgers` instead of this.
+    fn assert_minimum_hold_elapsed(env: &Env, provider: &Address, token: &Address) {
+        if Self::withdrawal_cooldown(env) >= Self::MINIMUM_HOLD_LEDGERS {
+            return;
+        }
+        Self::assert_share_held_for_minimum_ledgers(env, provider, token);
     }
 
     /// Principal attributable to `shares` out of `total_shares`.
@@ -914,18 +932,14 @@ impl LendingPool {
 
     /// Burn `shares` LP tokens and receive the proportional underlying assets.
     ///
-    /// The redemption value is `shares * pool_balance / total_shares`, which
-    /// automatically includes any interest that has been repaid to the pool
-    /// since the shares were minted — no separate claim step is required.
-    /// Burn `shares` LP tokens and receive the proportional underlying assets.
-    ///
-    /// The redemption value is `shares * pool_balance / total_shares`, which
-    /// automatically includes any interest that has been repaid to the pool
+    /// The redemption value is `shares * (pool_balance + 1) / (total_shares + 1)`,
+    /// which automatically includes any interest that has been repaid to the pool
     /// since the shares were minted — no separate claim step is required.
     ///
     /// Enforces both the withdrawal cooldown and the minimum share hold time
-    /// (flash loan protection). Use [`emergency_withdraw`] to bypass these
-    /// guards during a contract pause.
+    /// (flash loan protection). Use [`emergency_withdraw`] to bypass the pause
+    /// and the cooldown during a contract pause; the minimum share hold time still
+    /// applies there.
     ///
     /// # Errors
     ///
@@ -946,14 +960,18 @@ impl LendingPool {
         Self::redeem_shares(&env, &provider, &token, shares)
     }
 
-    /// Emergency withdrawal that bypasses pause and cooldown checks.
+    /// Emergency withdrawal that bypasses the pause and the cooldown.
     ///
     /// This is a safety hatch for depositors when the pool is paused. It still
     /// validates share balance and liquidity, but skips `assert_not_paused` and
     /// `assert_withdrawal_cooldown_elapsed`.
     ///
-    /// Note: `emergency_withdraw` still enforces the minimum hold time to
-    /// prevent flash-loan extraction during an emergency.
+    /// The minimum share hold time is *not* skipped. This docstring claimed it
+    /// applied while the call went straight to `redeem_shares`, so the flash-loan
+    /// guard was in fact bypassable by anyone who used this entry point instead of
+    /// `withdraw` -- it needs no special privilege, only the provider's own
+    /// authorisation. A one-ledger wait is a small price for the hatch's stated
+    /// guarantee, and it still lets a depositor exit a paused pool.
     pub fn emergency_withdraw(
         env: Env,
         provider: Address,
@@ -961,6 +979,9 @@ impl LendingPool {
         shares: i128,
     ) -> Result<(), PoolError> {
         provider.require_auth();
+        // The unconditional form: this path does not run the cooldown check, so the
+        // cooldown-deferring variant would enforce nothing.
+        Self::assert_share_held_for_minimum_ledgers(&env, &provider, &token);
         Self::redeem_shares(&env, &provider, &token, shares)
     }
 
