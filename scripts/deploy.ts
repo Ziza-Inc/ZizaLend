@@ -4,7 +4,6 @@ import {
     TransactionBuilder,
     rpc as Rpc,
     Address,
-    nativeToScVal,
     xdr,
     StrKey,
 } from '@stellar/stellar-sdk';
@@ -12,6 +11,7 @@ import { createHash } from 'crypto';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { toScVal } from './scval';
 
 dotenv.config();
 
@@ -28,9 +28,81 @@ function contractSalt(name: string): Buffer {
     return createHash('sha256').update(`ZizaLend:${name}`).digest();
 }
 
-// Extract the newly created contract ID from transaction result metadata.
-function extractContractId(resultMeta: xdr.TransactionMeta): string {
-    const v3 = resultMeta.v3();
+// Derive the address a `createCustomContract` call will produce, without submitting it.
+//
+// A contract created from an account and a salt has a *deterministic* address:
+//
+//     contractId = sha256( HashIdPreimage {
+//         ENVELOPE_TYPE_CONTRACT_ID,
+//         networkId = sha256(networkPassphrase),
+//         ContractIDPreimage::Address { source, salt },
+//     } )
+//
+// Knowing this before submitting is what makes a deployment re-runnable. Without it,
+// a second run of this script re-derives the same salt, re-issues the create, and dies
+// on `Error(Storage, ExistingValue)` partway through -- leaving a half-configured
+// deployment that must be fixed by hand. Here the address is computed first, the
+// instance is created only when it is absent, and the derived address is checked
+// against the address the host actually returns.
+function deriveContractId(account: Keypair, salt: Buffer, networkPassphrase: string): string {
+    const networkId = createHash('sha256').update(networkPassphrase).digest();
+    const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
+        new xdr.HashIdPreimageContractId({
+            networkId,
+            contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+                new xdr.ContractIdPreimageFromAddress({
+                    address: Address.fromString(account.publicKey()).toScAddress(),
+                    salt,
+                }),
+            ),
+        }),
+    );
+    return StrKey.encodeContract(createHash('sha256').update(preimage.toXDR()).digest());
+}
+
+// True when a contract instance already exists at `contractId`.
+async function contractInstanceExists(server: Rpc.Server, contractId: string): Promise<boolean> {
+    try {
+        await server.getContractData(
+            contractId,
+            xdr.ScVal.scvLedgerKeyContractInstance(),
+            Rpc.Durability.Persistent,
+        );
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// Read the contract address out of a host function's return value.
+//
+// `HostFunction::CreateContract` returns the new contract's `ScVal::Address`, and
+// simulation reports that return value without needing a ledger. This is the
+// authoritative source for the address: the contract ID is derived from
+// (source account, salt), and the host computes exactly that derivation, so a
+// simulation is as sound as the executed transaction for this one value.
+//
+// Returns `undefined` for any other shape so callers can fall back.
+function contractIdFromRetval(retval: xdr.ScVal): string | undefined {
+    if (retval.switch().name !== 'scvAddress') return undefined;
+    const address = retval.address();
+    if (address.switch().name !== 'scAddressTypeContract') return undefined;
+    return StrKey.encodeContract(Buffer.from(address.contractId() as unknown as Uint8Array));
+}
+
+// Fallback: scan the transaction result metadata for the created contract instance.
+//
+// This is kept as a second opinion rather than the primary path because it depends
+// on how the RPC client decoded `resultMetaXdr`, which is not part of the protocol
+// contract. Returns `undefined` instead of throwing so the caller can decide.
+function extractContractId(resultMeta: xdr.TransactionMeta): string | undefined {
+    let v3: xdr.TransactionMetaV3;
+    try {
+        v3 = resultMeta.v3();
+    } catch {
+        // The client may hand back a meta whose union tag is not populated.
+        return undefined;
+    }
     for (const opMeta of v3.operations()) {
         for (const change of opMeta.changes()) {
             if (change.switch().name !== 'ledgerEntryCreated') continue;
@@ -46,14 +118,20 @@ function extractContractId(resultMeta: xdr.TransactionMeta): string {
             }
         }
     }
-    throw new Error('Could not extract contract ID from transaction metadata');
+    return undefined;
+}
+
+// The simulation and execution result of a submitted transaction.
+interface TxOutcome {
+    response: Rpc.Api.GetSuccessfulTransactionResponse;
+    retval: xdr.ScVal;
 }
 
 async function sendTx(
     server: Rpc.Server,
     tx: ReturnType<TransactionBuilder['build']>,
     account: Keypair,
-): Promise<Rpc.Api.GetSuccessfulTransactionResponse> {
+): Promise<TxOutcome> {
     const sim = await server.simulateTransaction(tx);
     if (Rpc.Api.isSimulationError(sim)) {
         throw new Error(`Simulation failed: ${JSON.stringify(sim.error, null, 2)}`);
@@ -79,7 +157,10 @@ async function sendTx(
         throw new Error(`Transaction failed: ${JSON.stringify(txResponse, null, 2)}`);
     }
 
-    return txResponse as Rpc.Api.GetSuccessfulTransactionResponse;
+    return {
+        response: txResponse as Rpc.Api.GetSuccessfulTransactionResponse,
+        retval: sim.result!.retval,
+    };
 }
 
 // Upload WASM bytecode to the network and return its SHA-256 hash.
@@ -114,6 +195,13 @@ async function createInstance(
     account: Keypair,
     networkPassphrase: string,
 ): Promise<string> {
+    const expectedId = deriveContractId(account, salt, networkPassphrase);
+
+    if (await contractInstanceExists(server, expectedId)) {
+        console.log(`    already deployed at ${expectedId}, skipping create`);
+        return expectedId;
+    }
+
     const source = await server.getAccount(account.publicKey());
     const tx = new TransactionBuilder(source, { fee: '100000', networkPassphrase })
         .addOperation(
@@ -126,8 +214,30 @@ async function createInstance(
         .setTimeout(30)
         .build();
 
-    const result = await sendTx(server, tx, account);
-    return extractContractId(result.resultMetaXdr);
+    const outcome = await sendTx(server, tx, account);
+
+    const contractId =
+        contractIdFromRetval(outcome.retval) ??
+        extractContractId(outcome.response.resultMetaXdr);
+
+    if (!contractId) {
+        throw new Error(
+            'Could not determine the new contract ID: the create-contract host function ' +
+                'returned no address and the transaction metadata carried no ' +
+                'scvLedgerKeyContractInstance entry.',
+        );
+    }
+
+    // The derivation and the host must agree. A mismatch means the salt, the source
+    // account, or the network passphrase is not what this script believes it is, and
+    // every address written to the .env files afterwards would be wrong.
+    if (contractId !== expectedId) {
+        throw new Error(
+            `Contract address mismatch: derived ${expectedId} but the host created ${contractId}`,
+        );
+    }
+
+    return contractId;
 }
 
 // Call a contract function with positional arguments.
@@ -147,7 +257,7 @@ async function invoke(
                     new xdr.InvokeContractArgs({
                         contractAddress: Address.fromString(contractId).toScAddress(),
                         functionName: method,
-                        args: args.map(arg => nativeToScVal(arg)),
+                        args: args.map(toScVal),
                     }),
                 ),
                 auth: [],
@@ -174,6 +284,25 @@ async function main() {
 
     const server = new Rpc.Server(config.rpcUrl);
     const passphrase = config.networkPassphrase;
+
+    // Fail before uploading anything.
+    //
+    // A malformed `token` is the most expensive configuration mistake to discover,
+    // because `LendingPool.allow_token` and `LoanManager.initialize` are both reached
+    // only after six contract instances already exist on-chain. The previous testnet
+    // value was a 56-character look-alike that is not a valid strkey, so the first
+    // `Address.fromString` threw halfway through the run. Validating up front turns
+    // that into a two-second failure with no orphaned contracts.
+    if (!StrKey.isValidContract(config.token)) {
+        throw new Error(
+            `config.token is not a valid Stellar contract address: ${config.token}. ` + 
+                'On testnet, the native XLM Stellar Asset Contract is ' +
+                'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC.',
+        );
+    }
+    if (!StrKey.isValidEd25519PublicKey(adminAddr)) {
+        throw new Error(`config.admin is not a valid Stellar account: ${adminAddr}`);
+    }
 
     console.log(`\nZizaLend deployment → ${network}`);
     console.log(`admin : ${adminAddr}`);
@@ -258,9 +387,13 @@ async function main() {
     console.log('  NFT.authorize_minter(LoanManager)');
     await invoke(server, nftContractId, 'authorize_minter', [managerContractId], account, passphrase);
 
-    // LendingPool
+    // LendingPool. Takes the admin only: the token a market accepts is registered
+    // separately via `allow_token` in step 4. Passing `config.token` here made the
+    // call fail WASM argument decoding, because the contract's `initialize` has taken
+    // a single `admin` argument since the deposit side moved to a fail-closed
+    // allowlist.
     console.log('  LendingPool.initialize');
-    await invoke(server, poolContractId, 'initialize', [config.token, adminAddr], account, passphrase);
+    await invoke(server, poolContractId, 'initialize', [adminAddr], account, passphrase);
 
     // LoanManager — validates minter authorization on-chain during this call.
     console.log('  LoanManager.initialize');
