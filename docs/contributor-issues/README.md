@@ -1,7 +1,7 @@
 # Contributor issue backlog
 
-This directory is the **source of truth for the project's issue backlog**. Each file is one
-issue: YAML frontmatter plus a body. `scripts/publish-issues.mjs` syncs them to GitHub,
+This directory is the **source of truth for the project's issue backlog**. Each file is
+one issue: YAML frontmatter plus a body. `scripts/publish-issues.mjs` syncs them to GitHub,
 so the backlog is reviewed in a pull request before it appears in the tracker, and a
 closed issue is re-opened by the next run while its draft still exists.
 
@@ -11,13 +11,16 @@ GITHUB_TOKEN=<token> node scripts/publish-issues.mjs
 
 # create and update issues, and close ones with no draft
 GITHUB_TOKEN=<token> node scripts/publish-issues.mjs --apply --close-missing
+
+# regenerate this index
+node scripts/publish-issues.mjs --write-index
 ```
 
 Matching is by the `<!-- backlog-id: ... -->` marker in the published body, so renaming a
 draft updates its issue instead of opening a second one. Running the publisher twice
 changes nothing the second time.
 
-**116 issues** — 37 beginner, 56 intermediate, 23 advanced.
+**116 issues** — 38 beginner, 54 intermediate, 24 advanced.
 
 ## By area
 
@@ -134,7 +137,7 @@ changes nothing the second time.
 | [076](./076-frontend-016-hydration-mismatch.md) | Eliminate hydration mismatches in wallet-dependent UI | intermediate |
 | [077](./077-frontend-017-admin-guard.md) | Verify the admin area refuses non-admin users on the server, not only in the UI | advanced |
 | [078](./078-frontend-018-theme-and-motion.md) | Respect reduced-motion and theme preferences | beginner |
-| [079](./079-frontend-019-sdk-usage-boundary.md) | Route all contract calls through the SDK package | intermediate |
+| [079](./079-frontend-019-sdk-usage-boundary.md) | Frontend: the app builds its own contracts calls instead of using a shared transaction layer | intermediate |
 | [080](./080-frontend-020-demo-data-honesty.md) | Make demo and seeded data visibly demo data | beginner |
 
 ### infrastructure (5)
@@ -147,22 +150,27 @@ changes nothing the second time.
 | [009](./009-add-sdk-loan-refinance-extension.md) | Add SDK client methods for loan refinancing and extension | intermediate |
 | [010](./010-add-contract-event-tests.md) | Add event emission verification tests for Soroban smart contracts | advanced |
 
-### packages/sdk (12)
+### packages/sdk (4)
 
 | # | Issue | Difficulty |
 |---|---|---|
-| [081](./081-sdk-001-retry-and-timeout.md) | Give the SDK a documented retry and timeout policy | intermediate |
-| [082](./082-sdk-002-contract-error-decoding.md) | Decode on-chain contract errors into typed SDK errors | intermediate |
 | [083](./083-sdk-003-openapi-parity.md) | Verify the SDK surface matches the OpenAPI operations | intermediate |
-| [084](./084-sdk-004-sdk-readme.md) | Write an SDK README with a working quick start | beginner |
 | [085](./085-sdk-005-versioning-policy.md) | Publish a versioning and compatibility policy for the workspace packages | beginner |
-| [086](./086-sdk-006-events-typed.md) | Type the event surface in the SDK | intermediate |
-| [087](./087-sdk-007-simulation-helpers.md) | Expose transaction preview through a documented SDK helper | intermediate |
-| [088](./088-sdk-008-auth-helpers.md) | Document and test the challenge-response authentication flow in the SDK | intermediate |
-| [089](./089-sdk-009-health-endpoint.md) | Define what the SDK health helper checks and what a consumer should do with it | beginner |
 | [090](./090-sdk-010-package-readmes.md) | Add a README to the types package | beginner |
 | [091](./091-sdk-011-e2e-sdk-tests.md) | Add an integration test that exercises the SDK against a running backend | advanced |
-| [092](./092-sdk-012-transaction-fee-policy.md) | Make the fee strategy explicit and configurable | intermediate |
+
+### sdk (8)
+
+| # | Issue | Difficulty |
+|---|---|---|
+| [081](./081-sdk-001-retry-can-double-submit.md) | SDK: a retried POST can submit the same transaction twice | advanced |
+| [082](./082-sdk-002-typed-error-codes.md) | SDK: type the API error code so consumers can branch exhaustively | intermediate |
+| [084](./084-sdk-004-pagination-iterator.md) | SDK: add a cursor iterator so consumers stop re-implementing pagination | intermediate |
+| [086](./086-sdk-006-events-typed.md) | SDK: make `LoanEventRecord.eventType` a discriminated union | beginner |
+| [087](./087-sdk-007-unpublished-install.md) | SDK: the README's install command does not correspond to a published package | beginner |
+| [088](./088-sdk-008-is-authenticated-expiry.md) | SDK: `isAuthenticated` reports true for an expired token | beginner |
+| [089](./089-sdk-009-retry-after.md) | SDK: honour `Retry-After` instead of guessing the backoff | intermediate |
+| [092](./092-sdk-012-total-deadline.md) | SDK: bound the total time a request can take, not just each attempt | intermediate |
 
 ### testing (8)
 
@@ -193,5 +201,5 @@ labels: ["contracts", "help wanted"]
 Then write `## Context` (why this matters), `## Task` (what to do),
 `## Definition of Done` (how a reviewer knows), and `## Relevant files`.
 
-Run `node scripts/publish-issues.mjs` first: it validates the frontmatter and refuses
-duplicate titles or ids, which is also what CI checks.
+Run `node scripts/publish-issues.mjs --validate-only` first: it refuses a missing
+frontmatter field, a duplicate id, and a duplicate title, which is also what CI checks.

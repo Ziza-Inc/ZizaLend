@@ -4,8 +4,8 @@
     "networkPassphrase": "Test SDF Network ; September 2015",
     "admin": "GD7FY2HPGH6TQGUHTKPHXZRQV6ZTSKRKGABLSHAH7SDUM22YBMRV6B5Y",
     "token": "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-    "deployedAt": "2026-09-18T13:39:28.105Z",
-    "sourceRevision": null,
+    "deployedAt": "2026-09-18T13:32:46.685Z",
+    "sourceRevision": "0cc253b",
     "contracts": {
         "remittance_nft": "CA7XGN4FUHQAEJMYQVOWJE6J4P75QWEQSTW3L6X2HRGILQAHKKRBHZQ2",
         "lending_pool": "CBOMMNN4L62O64ZZP2HYGURSJNPY3CDYR6DAIG342PSST3V6XSCOE3UJ",

@@ -1,25 +1,28 @@
 ---
-title: "Type the event surface in the SDK"
-area: packages/sdk
-difficulty: intermediate
+title: "SDK: make `LoanEventRecord.eventType` a discriminated union"
+area: sdk
+difficulty: beginner
 labels: ["enhancement", "sdk", "typescript"]
 ---
 
 ## Context
 
-`packages/sdk/src/events.ts` and `indexer.ts` exist. If the event payloads are typed as `unknown` or loosely, consumers get no help and a changed topic or payload shape is discovered at runtime in production.
+`LoanEventRecord` declares `eventType: string` and every other field as optional. The values are a closed set the contracts actually emit — the backend indexes a fixed list of event types — but the type says any string is valid, so a consumer cannot narrow on it and a typo in a comparison compiles. Making the record a discriminated union over `eventType` turns the payload fields that are currently optional-and-unchecked into fields that are present exactly for the variants that carry them.
 
 ## Task
 
-- Define a discriminated union over event kind with the payload for each
-- Provide a narrowing helper so a consumer handles all cases exhaustively
-- Add a test that an unknown event kind is rejected rather than silently dropped
+- Enumerate the event types the contracts emit and the backend indexes
+- Model the record as a union discriminated on `eventType`, with payload fields required per variant
+- Keep a permissive fallback member for an unrecognised type so a new contract event does not break consumers
+- Add a test that every emitted type is representable and that the fallback is reachable
 
 ## Definition of Done
 
-- Consumers get compile-time exhaustiveness over event kinds
-- Adding an event kind without updating the union fails to compile at the consumer
+- Switching on `eventType` narrows the payload without casts
+- Adding an event type in the contracts without updating the union is caught by a test or a typecheck, not at runtime
 
 ## Relevant files
 
 - `packages/sdk/src/events.ts`
+- `contracts/*/src/events.rs`
+- `backend/src/services/eventIndexer.ts`

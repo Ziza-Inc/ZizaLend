@@ -52,7 +52,9 @@ const API = 'https://api.github.com';
  * mirror.
  */
 function resolveRepo() {
-    const flag = process.argv.find(argument => argument.startsWith('--repo='));
+    const flag = process.argv.find((argument) =>
+        argument.startsWith('--repo='),
+    );
     if (flag) return flag.slice('--repo='.length);
     try {
         const remote = execFileSync('git', ['remote', 'get-url', 'origin'], {
@@ -75,10 +77,13 @@ const apply = args.has('--apply');
 const closeMissing = args.has('--close-missing');
 const validateOnly = args.has('--validate-only');
 const checkIndex = args.has('--check-index');
+const writeIndex = args.has('--write-index');
 const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 
 if (!validateOnly && !token) {
-    console.error('GITHUB_TOKEN (or GH_TOKEN) is required. Use --validate-only to check the');
+    console.error(
+        'GITHUB_TOKEN (or GH_TOKEN) is required. Use --validate-only to check the',
+    );
     console.error('backlog without contacting the API.');
     process.exit(2);
 }
@@ -90,7 +95,7 @@ const headers = {
     'User-Agent': 'zizalend-backlog-publisher',
 };
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Delay between writes.
@@ -110,7 +115,10 @@ async function github(method, url, body) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const response = await fetch(target, {
             method,
-            headers: { ...headers, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+            headers: {
+                ...headers,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
             body: body ? JSON.stringify(body) : undefined,
         });
 
@@ -121,18 +129,24 @@ async function github(method, url, body) {
         const text = await response.text();
         const retryable =
             response.status === 429 ||
-            (response.status === 403 && /secondary rate limit|rate limit/i.test(text));
+            (response.status === 403 &&
+                /secondary rate limit|rate limit/i.test(text));
 
         if (!retryable || attempt === maxAttempts) {
-            throw new Error(`${method} ${target} → ${response.status} ${text.slice(0, 400)}`);
+            throw new Error(
+                `${method} ${target} → ${response.status} ${text.slice(0, 400)}`,
+            );
         }
 
         // Honour `retry-after` when GitHub sends it; otherwise back off exponentially.
         const retryAfter = Number(response.headers.get('retry-after'));
-        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : Math.min(60_000, 5_000 * 2 ** (attempt - 1));
-        console.log(`  … rate limited, waiting ${Math.round(waitMs / 1000)}s (attempt ${attempt}/${maxAttempts})`);
+        const waitMs =
+            Number.isFinite(retryAfter) && retryAfter > 0
+                ? retryAfter * 1000
+                : Math.min(60_000, 5_000 * 2 ** (attempt - 1));
+        console.log(
+            `  … rate limited, waiting ${Math.round(waitMs / 1000)}s (attempt ${attempt}/${maxAttempts})`,
+        );
         await sleep(waitMs);
     }
 
@@ -153,19 +167,24 @@ function parseFrontmatter(source, file) {
     for (const line of raw.split(/\r?\n/)) {
         if (!line.trim()) continue;
         const separator = line.indexOf(':');
-        if (separator === -1) throw new Error(`${file}: frontmatter line without a colon: ${line}`);
+        if (separator === -1)
+            throw new Error(
+                `${file}: frontmatter line without a colon: ${line}`,
+            );
         const key = line.slice(0, separator).trim();
         let value = line.slice(separator + 1).trim();
         if (value.startsWith('[')) {
-            fields[key] = [...value.matchAll(/"([^"]*)"/g)].map(m => m[1]);
+            fields[key] = [...value.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
         } else {
             fields[key] = value.replace(/^"(.*)"$/, '$1');
         }
     }
     for (const required of ['title', 'labels']) {
-        if (!fields[required]) throw new Error(`${file}: frontmatter is missing "${required}"`);
+        if (!fields[required])
+            throw new Error(`${file}: frontmatter is missing "${required}"`);
     }
-    if (fields.title === '---') throw new Error(`${file}: title is literally "---"`);
+    if (fields.title === '---')
+        throw new Error(`${file}: title is literally "---"`);
     return { ...fields, body: body.trim() };
 }
 
@@ -177,9 +196,108 @@ function renderBody(id, draft) {
     return `${draft.body}\n\n<!-- backlog-id: ${id} -->\n`;
 }
 
+/**
+ * Render the backlog index.
+ *
+ * Generated here rather than by a separate script so there is one implementation: an
+ * earlier hand-written generator silently stopped half way through and left the index
+ * naming titles that had since changed. CI compares the committed index against this
+ * function's output, so drift fails rather than accumulating.
+ */
+function renderIndex(drafts) {
+    const byArea = new Map();
+    for (const draft of drafts) {
+        const area = draft.area ?? 'other';
+        if (!byArea.has(area)) byArea.set(area, []);
+        byArea.get(area).push(draft);
+    }
+
+    const difficulties = drafts.reduce((acc, draft) => {
+        acc[draft.difficulty ?? 'unspecified'] =
+            (acc[draft.difficulty ?? 'unspecified'] ?? 0) + 1;
+        return acc;
+    }, {});
+    const difficultySummary = ['beginner', 'intermediate', 'advanced']
+        .filter((level) => difficulties[level])
+        .map((level) => `${difficulties[level]} ${level}`)
+        .join(', ');
+
+    const lines = [
+        '# Contributor issue backlog',
+        '',
+        "This directory is the **source of truth for the project's issue backlog**. Each file is",
+        'one issue: YAML frontmatter plus a body. `scripts/publish-issues.mjs` syncs them to GitHub,',
+        'so the backlog is reviewed in a pull request before it appears in the tracker, and a',
+        'closed issue is re-opened by the next run while its draft still exists.',
+        '',
+        '```bash',
+        '# report the difference between this directory and the tracker',
+        'GITHUB_TOKEN=<token> node scripts/publish-issues.mjs',
+        '',
+        '# create and update issues, and close ones with no draft',
+        'GITHUB_TOKEN=<token> node scripts/publish-issues.mjs --apply --close-missing',
+        '',
+        '# regenerate this index',
+        'node scripts/publish-issues.mjs --write-index',
+        '```',
+        '',
+        'Matching is by the `<!-- backlog-id: ... -->` marker in the published body, so renaming a',
+        'draft updates its issue instead of opening a second one. Running the publisher twice',
+        'changes nothing the second time.',
+        '',
+        `**${drafts.length} issues** — ${difficultySummary}.`,
+        '',
+        '## By area',
+        '',
+    ];
+
+    for (const area of [...byArea.keys()].sort()) {
+        const items = byArea.get(area);
+        lines.push(
+            `### ${area} (${items.length})`,
+            '',
+            '| # | Issue | Difficulty |',
+            '|---|---|---|',
+        );
+        for (const draft of items) {
+            const number = draft.file.split('-')[0];
+            lines.push(
+                `| [${number}](./${draft.file}) | ${draft.title} | ${draft.difficulty ?? '—'} |`,
+            );
+        }
+        lines.push('');
+    }
+
+    lines.push(
+        '## How to add an issue',
+        '',
+        'Add a file named `NNN-<area>-<slug>.md` with this frontmatter:',
+        '',
+        '```yaml',
+        '---',
+        'title: "Area: the outcome, stated as a change"',
+        'area: contracts | backend | frontend | sdk | testing | ci-cd | docs',
+        'difficulty: beginner | intermediate | advanced',
+        'labels: ["contracts", "help wanted"]',
+        '---',
+        '```',
+        '',
+        'Then write `## Context` (why this matters), `## Task` (what to do),',
+        '`## Definition of Done` (how a reviewer knows), and `## Relevant files`.',
+        '',
+        'Run `node scripts/publish-issues.mjs --validate-only` first: it refuses a missing',
+        'frontmatter field, a duplicate id, and a duplicate title, which is also what CI checks.',
+        '',
+    );
+    return lines.join('\n');
+}
+
 async function loadDrafts() {
-    const entries = (await fs.readdir(BACKLOG_DIR)).filter(name => /^\d+-.*\.md$/.test(name)).sort();
-    if (entries.length === 0) throw new Error(`No drafts found in ${BACKLOG_DIR}`);
+    const entries = (await fs.readdir(BACKLOG_DIR))
+        .filter((name) => /^\d+-.*\.md$/.test(name))
+        .sort();
+    if (entries.length === 0)
+        throw new Error(`No drafts found in ${BACKLOG_DIR}`);
 
     const drafts = [];
     const seenIds = new Set();
@@ -192,11 +310,18 @@ async function loadDrafts() {
         if (seenIds.has(id)) throw new Error(`duplicate backlog id: ${id}`);
         seenIds.add(id);
         if (seenTitles.has(parsed.title)) {
-            throw new Error(`duplicate title: "${parsed.title}" in ${name} and ${seenTitles.get(parsed.title)}`);
+            throw new Error(
+                `duplicate title: "${parsed.title}" in ${name} and ${seenTitles.get(parsed.title)}`,
+            );
         }
         seenTitles.set(parsed.title, name);
 
-        drafts.push({ id, file: name, ...parsed, rendered: renderBody(id, parsed) });
+        drafts.push({
+            id,
+            file: name,
+            ...parsed,
+            rendered: renderBody(id, parsed),
+        });
     }
     return drafts;
 }
@@ -204,8 +329,11 @@ async function loadDrafts() {
 async function loadExistingIssues() {
     const issues = [];
     for (let page = 1; ; page++) {
-        const batch = await github('GET', `/repos/${REPO}/issues?state=all&per_page=100&page=${page}`);
-        issues.push(...batch.filter(issue => !issue.pull_request));
+        const batch = await github(
+            'GET',
+            `/repos/${REPO}/issues?state=all&per_page=100&page=${page}`,
+        );
+        issues.push(...batch.filter((issue) => !issue.pull_request));
         if (batch.length < 100) break;
     }
     return issues;
@@ -214,19 +342,54 @@ async function loadExistingIssues() {
 async function main() {
     const drafts = await loadDrafts();
 
+    if (writeIndex) {
+        await fs.writeFile(
+            path.join(BACKLOG_DIR, 'README.md'),
+            renderIndex(drafts),
+        );
+        console.log(`\nWrote the backlog index — ${drafts.length} drafts.`);
+        if (validateOnly) return;
+    }
+
     if (validateOnly) {
-        console.log(`\nBacklog OK — ${drafts.length} drafts validated (frontmatter, unique ids, unique titles).`);
+        console.log(
+            `\nBacklog OK — ${drafts.length} drafts validated (frontmatter, unique ids, unique titles).`,
+        );
 
         if (checkIndex) {
-            const index = await fs.readFile(path.join(BACKLOG_DIR, 'README.md'), 'utf8');
-            const missing = drafts.filter(draft => !index.includes(`./${draft.file}`));
+            const index = await fs.readFile(
+                path.join(BACKLOG_DIR, 'README.md'),
+                'utf8',
+            );
+            const missing = drafts.filter(
+                (draft) => !index.includes(`./${draft.file}`),
+            );
+            const stale = drafts.filter(
+                (draft) =>
+                    !index.includes(`"${draft.title}"`) &&
+                    !index.includes(draft.title),
+            );
             if (missing.length) {
-                console.error(`\n  ${missing.length} draft(s) missing from docs/contributor-issues/README.md:`);
-                for (const draft of missing.slice(0, 20)) console.error(`    ${draft.file}`);
-                console.error('\n  Regenerate the index so the backlog is navigable.\n');
+                console.error(
+                    `\n  ${missing.length} draft(s) missing from docs/contributor-issues/README.md:`,
+                );
+                for (const draft of missing.slice(0, 20))
+                    console.error(`    ${draft.file}`);
+            }
+            if (stale.length) {
+                console.error(
+                    `\n  ${stale.length} draft(s) whose title has changed but not in the index:`,
+                );
+                for (const draft of stale.slice(0, 20))
+                    console.error(`    ${draft.file}`);
+            }
+            if (missing.length || stale.length) {
+                console.error(
+                    '\n  Run `node scripts/publish-issues.mjs --write-index` to regenerate it.\n',
+                );
                 process.exit(1);
             }
-            console.log('  Index lists every draft.\n');
+            console.log('  Index lists every draft, with current titles.\n');
         }
         return;
     }
@@ -237,7 +400,9 @@ async function main() {
     const byTitle = new Map();
     const unmanaged = [];
     for (const issue of existing) {
-        const marker = /<!--\s*backlog-id:\s*([\w-]+)\s*-->/.exec(issue.body ?? '');
+        const marker = /<!--\s*backlog-id:\s*([\w-]+)\s*-->/.exec(
+            issue.body ?? '',
+        );
         if (marker) byBacklogId.set(marker[1], issue);
         byTitle.set(issue.title, issue);
     }
@@ -257,10 +422,12 @@ async function main() {
         matched.add(issue.number);
 
         const labelsChanged =
-            JSON.stringify([...issue.labels.map(l => l.name)].sort()) !==
+            JSON.stringify([...issue.labels.map((l) => l.name)].sort()) !==
             JSON.stringify([...draft.labels].sort());
         const drifted =
-            issue.title !== draft.title || (issue.body ?? '').trim() !== draft.rendered.trim() || labelsChanged;
+            issue.title !== draft.title ||
+            (issue.body ?? '').trim() !== draft.rendered.trim() ||
+            labelsChanged;
 
         if (drifted || issue.state !== 'open') {
             toUpdate.push({ draft, issue, labelsChanged });
@@ -288,9 +455,13 @@ async function main() {
 
     if (!apply) {
         if (unmanaged.length) {
-            console.log('\n  Issues with no matching draft (use --close-missing to close):');
+            console.log(
+                '\n  Issues with no matching draft (use --close-missing to close):',
+            );
             for (const issue of unmanaged.slice(0, 20)) {
-                console.log(`    #${issue.number} [${issue.state}] ${issue.title}`);
+                console.log(
+                    `    #${issue.number} [${issue.state}] ${issue.title}`,
+                );
             }
         }
         return;
@@ -307,7 +478,10 @@ async function main() {
         written++;
         await sleep(WRITE_PACING_MS);
     }
-    if (written) console.log(`  (paced ${WRITE_PACING_MS}ms between ${written} creates)`);
+    if (written)
+        console.log(
+            `  (paced ${WRITE_PACING_MS}ms between ${written} creates)`,
+        );
 
     for (const { draft, issue } of toUpdate) {
         // Re-opened deliberately: a draft that is still in the backlog is still work.
@@ -323,10 +497,16 @@ async function main() {
     if (closeMissing && unmanaged.length) {
         for (const issue of unmanaged) {
             if (issue.state !== 'open') continue;
-            await github('POST', `/repos/${REPO}/issues/${issue.number}/comments`, {
-                body: 'Closing: this issue is not in `docs/contributor-issues/`, which is now the source of truth for the backlog. If the work is still wanted, add a draft there and run `node scripts/publish-issues.mjs --apply`, which will re-open this issue rather than duplicating it.',
+            await github(
+                'POST',
+                `/repos/${REPO}/issues/${issue.number}/comments`,
+                {
+                    body: 'Closing: this issue is not in `docs/contributor-issues/`, which is now the source of truth for the backlog. If the work is still wanted, add a draft there and run `node scripts/publish-issues.mjs --apply`, which will re-open this issue rather than duplicating it.',
+                },
+            );
+            await github('PATCH', `/repos/${REPO}/issues/${issue.number}`, {
+                state: 'closed',
             });
-            await github('PATCH', `/repos/${REPO}/issues/${issue.number}`, { state: 'closed' });
             console.log(`  closed #${issue.number}  ${issue.title}`);
         }
     }
@@ -334,7 +514,7 @@ async function main() {
     console.log('\nDone.\n');
 }
 
-main().catch(error => {
+main().catch((error) => {
     console.error(`\nBacklog publish failed: ${error.message}\n`);
     process.exit(1);
 });

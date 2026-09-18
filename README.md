@@ -9,7 +9,17 @@
 <a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL" /></a>
 <a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/deploy-staging.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/deploy-staging.yml?branch=main&label=Deploy%20Staging&logo=docker&style=flat-square" alt="Deploy Staging" /></a>
 <a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/commitlint.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/commitlint.yml?branch=main&label=Commitlint&logo=conventionalcommits&style=flat-square" alt="Commitlint" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/issues"><img src="https://img.shields.io/github/issues/Ziza-Inc/ZizaLend?style=flat-square&label=open%20issues&color=7C3AED" alt="Open issues" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/graphs/contributors"><img src="https://img.shields.io/github/contributors/Ziza-Inc/ZizaLend?style=flat-square&color=7C3AED" alt="Contributors" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/github/license/Ziza-Inc/ZizaLend?style=flat-square&color=blue" alt="License: ISC" /></a>
+
+  <!-- Deployment + verification -->
+  <br/>
+  <a href="docs/deployed-contracts.md"><img src="https://img.shields.io/badge/Stellar_Testnet-deployed-7C3AED?style=flat-square&logo=stellar" alt="Deployed on Stellar Testnet" /></a>
+  <img src="https://img.shields.io/badge/contract_tests-342_passing-2EA043?style=flat-square&logo=rust" alt="342 contract tests passing" />
+  <img src="https://img.shields.io/badge/backend_tests-530_passing-2EA043?style=flat-square&logo=jest" alt="530 backend tests passing" />
+  <img src="https://img.shields.io/badge/smoke_test-8%2F8_on_Testnet-2EA043?style=flat-square&logo=stellar" alt="End-to-end smoke test passing on Testnet" />
+  <a href="docs/contracts-ACCESS-CONTROL.md"><img src="https://img.shields.io/badge/governance-3--of--N_multisig-7C3AED?style=flat-square" alt="Multisig governance" /></a>
 
   <!-- Tech Stack (versions verified against package.json / Cargo.toml / CI) -->
   <br/>
@@ -35,6 +45,7 @@
 ## 📑 Table of Contents
 
 - [Overview](#-overview)
+- [Live on Testnet](#-live-on-testnet)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
 - [Tech Stack](#-tech-stack)
@@ -66,6 +77,35 @@ flowchart LR
 ```
 
 > 💡 **Why Stellar?** Stellar's sub-second finality, near-zero fees (< $0.001), and built-in remittance corridors make it the ideal chain for real-world financial inclusion.
+
+---
+
+## 🌐 Live on Testnet
+
+All four contracts are deployed to Stellar Testnet, initialised, wired, and verified by an
+end-to-end test that runs the real user journey against the live addresses.
+
+| Contract | Address |
+|---|---|
+| `remittance_nft` | `CA7XGN4FUHQAEJMYQVOWJE6J4P75QWEQSTW3L6X2HRGILQAHKKRBHZQ2` |
+| `lending_pool` | `CBOMMNN4L62O64ZZP2HYGURSJNPY3CDYR6DAIG342PSST3V6XSCOE3UJ` |
+| `loan_manager` | `CDMZDO7YLWX7B6BXP5IJP6B5BRTLGSVQIRX3NLXU44GKFOYSPCZ5ER4F` |
+| governance (LoanManager / LendingPool / RemittanceNFT) | `CCME5YVLAAPKJDVINV6AIN7JLZBIWMUIQPH5FKYRW7OFXBLDZLCEYGXL` / `CB5NXI2DY6JUEV7APIX6E5OKA3D5NXUCX6Q7CN4BPV3MGV3FYI3PKHGV` / `CAWSRFL2WUD5WIYFABOVZJOG3V3VI7IYHLWCWDY2HRRVYAEWHS6TLUVE` |
+| token (native XLM Stellar Asset Contract) | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+
+[Full registry, deployed protocol parameters, and verification commands →](docs/deployed-contracts.md)
+
+```bash
+# Reproduce the verification: funds a fresh lender and borrower, then runs the whole journey
+cd scripts && SECRET_KEY=<admin secret> npx ts-node smoke-testnet.ts testnet
+
+✅ wiring · deposit · withdrawal guard · credit identity · loan approval · repayment · score credited · withdrawal
+```
+
+Two claims are deliberately separated, because they are different claims. `deploy.ts` proves
+the contracts *exist and are wired*. `smoke-testnet.ts` proves the protocol *works* — deposit,
+request, approve, repay, score credited, withdrawal. A deployment that passes only the first
+is a set of addresses, not a working system.
 
 ---
 
