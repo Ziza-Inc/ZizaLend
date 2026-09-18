@@ -2219,7 +2219,6 @@ fn test_configured_score_recorder_can_credit_and_penalise() {
 }
 
 #[test]
-#[should_panic]
 fn test_authorized_minter_cannot_penalise_a_score() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2240,8 +2239,18 @@ fn test_authorized_minter_cannot_penalise_a_score() {
     );
     client.authorize_minter(&minter);
 
-    // `decrease_score` reports authorisation failure by panicking.
-    client.decrease_score(&user, &10, &Some(minter));
+    // `decrease_score` reports authorisation failure as a typed value. It used to
+    // `panic!`, which gave a caller no way to contain the failure: the LoanManager's
+    // default batch had to choose between aborting on a mistyped recorder and not
+    // checking at all.
+    assert!(
+        matches!(
+            client.try_decrease_score(&user, &10, &Some(minter)),
+            Err(Ok(NftError::UnauthorizedScoreRecorder))
+        ),
+        "a minter that is not the recorder must not be able to penalise a score"
+    );
+    assert_eq!(client.get_score(&user), 500);
 }
 
 #[test]

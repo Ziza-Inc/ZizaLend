@@ -108,6 +108,17 @@ pub fn default_report_skipped(env: &Env, loan_id: u32, borrower: Address) {
     env.events().publish(topics, borrower);
 }
 
+/// A repayment's credit-score consequence could not be applied on the NFT.
+///
+/// The score writes are best-effort by design (see `repay`): they run after the
+/// borrower's payment has already moved, so failing the transaction there would mean a
+/// misconfigured score recorder makes repaying impossible. A refusal is not an error,
+/// but it must not be invisible either.
+pub fn score_report_skipped(env: &Env, borrower: Address, amount: i128) {
+    let topics = (Symbol::new(env, "ScoreReportSkipped"), borrower);
+    env.events().publish(topics, amount);
+}
+
 pub fn term_limits_updated(env: &Env, min_term: u32, max_term: u32) {
     let topics = (Symbol::new(env, "TermLimitsUpdated"),);
     env.events().publish(topics, (min_term, max_term));

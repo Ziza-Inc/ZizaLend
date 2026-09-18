@@ -1470,12 +1470,23 @@ impl LoanManager {
             let borrower_score = nft_client.get_score(&borrower);
             if borrower_score > 0 {
                 // get_score returns 0 for burned/non-existent NFTs
-                if completed && was_late {
-                    nft_client.decrease_score(
-                        &borrower,
-                        &Self::LATE_REPAYMENT_SCORE_PENALTY.unsigned_abs(),
-                        &Some(env.current_contract_address()),
-                    );
+                //
+                // Both writes are best-effort, and both happen after the borrower's money
+                // has already moved. Letting one of them fail would revert a payment the
+                // borrower made in good faith: a score recorder that is unset, or points
+                // at a different contract, would make repaying impossible. A refusal
+                // leaves the NFT's own state untouched and is reported below rather than
+                // being silent.
+                let manager = env.current_contract_address();
+                let applied = if completed && was_late {
+                    matches!(
+                        nft_client.try_decrease_score(
+                            &borrower,
+                            &Self::LATE_REPAYMENT_SCORE_PENALTY.unsigned_abs(),
+                            &Some(manager),
+                        ),
+                        Ok(Ok(()))
+                    )
                 } else if amount >= nft_client.get_min_repayment_amount() {
                     // Credit through `update_score`, the recorder-gated path that derives
                     // points from the repayment amount itself. This previously used
@@ -1483,15 +1494,19 @@ impl LoanManager {
                     // therefore open to any authorised minter; that path is now admin-only
                     // and unavailable here.
                     //
-                    // The floor is checked explicitly rather than left to fail: on a
-                    // cross-contract call an error aborts the whole repayment, so a
-                    // configured minimum above the repayment amount would otherwise make
-                    // repaying impossible. Below the floor the credit is simply skipped.
-                    nft_client.update_score(
-                        &borrower,
-                        &amount,
-                        &Some(env.current_contract_address()),
-                    );
+                    // The floor is checked explicitly rather than left to fail, because a
+                    // configured minimum above the repayment amount would make repaying
+                    // impossible. Below the floor no credit is due, which is not a refusal.
+                    matches!(
+                        nft_client.try_update_score(&borrower, &amount, &Some(manager)),
+                        Ok(Ok(()))
+                    )
+                } else {
+                    true
+                };
+
+                if !applied {
+                    events::score_report_skipped(&env, borrower.clone(), amount);
                 }
             }
         }

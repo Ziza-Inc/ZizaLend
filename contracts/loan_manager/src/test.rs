@@ -777,6 +777,78 @@ fn test_repayment_flow() {
     assert_eq!(nft_client.get_score(&borrower), 610);
 }
 
+/// A refused score write must not undo a repayment the borrower already made.
+///
+/// Score writes are gated on the NFT's single configured recorder, so a deploy that
+/// forgets `set_score_recorder` (or points it at another contract) makes every write
+/// fail. Those writes run *after* the borrower's tokens have moved, so propagating the
+/// refusal would revert the payment itself and leave the borrower unable to repay at all
+/// until the NFT is reconfigured. The refusal is contained and reported instead.
+#[test]
+fn test_repayment_survives_refused_score_write() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = BytesN::from_array(&env, &[9u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+    stellar_token.mint(&borrower, &10_000);
+
+    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    manager.approve_loan(&loan_id);
+
+    // The recorder belongs to some other contract: every score write is refused.
+    nft_client.set_score_recorder(&Address::generate(&env));
+
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 2_000);
+
+    manager.repay(&borrower, &loan_id, &500);
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(loan.status, LoanStatus::Approved);
+
+    let remaining = loan.amount + loan.accrued_interest + loan.accrued_late_fee
+        - loan.principal_paid
+        - loan.interest_paid
+        - loan.late_fee_paid;
+    manager.repay(&borrower, &loan_id, &remaining);
+    // Captured before any further call: the harness keeps only the latest invocation's
+    // events.
+    let events = env.events().all();
+
+    let completed = manager.get_loan(&loan_id);
+    assert_eq!(
+        completed.status,
+        LoanStatus::Repaid,
+        "the payment must still complete"
+    );
+    assert_eq!(completed.principal_paid, 1000);
+
+    // The credit is the part that had to be skipped, and it is visible on-chain.
+    assert_eq!(nft_client.get_score(&borrower), 600);
+    let expected = soroban_sdk::Symbol::new(&env, "ScoreReportSkipped");
+    let mut skipped = false;
+    for event in events.iter() {
+        if let Some(topic) = event.1.get(0) {
+            if soroban_sdk::Symbol::from_val(&env, &topic) == expected {
+                skipped = true;
+            }
+        }
+    }
+    assert!(skipped, "the skipped credit must be observable");
+}
+
 #[test]
 fn test_partial_repayment_tracks_split_balances() {
     let env = Env::default();

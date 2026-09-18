@@ -833,22 +833,35 @@ impl RemittanceNFT {
             .unwrap_or(Self::DEFAULT_MIN_REPAYMENT_AMOUNT)
     }
 
-    pub fn decrease_score(env: Env, user: Address, penalty_points: u32, minter: Option<Address>) {
-        Self::require_score_writer(&env, minter).unwrap_or_else(|_| panic!("unauthorized minter"));
+    /// Apply a penalty to a borrower's score.
+    ///
+    /// Returns a typed error rather than panicking. It previously reported
+    /// authorisation failure by panicking, which made it impossible for a caller to
+    /// contain the failure: the lender's batch default processor had to choose between
+    /// aborting every loan in the batch and not checking at all. Failure modes this
+    /// path can report are all routine -- not the recorder, paused, no NFT -- so they
+    /// belong in the return type, matching `update_score` and `apply_score_delta`.
+    pub fn decrease_score(
+        env: Env,
+        user: Address,
+        penalty_points: u32,
+        minter: Option<Address>,
+    ) -> Result<(), NftError> {
+        Self::require_score_writer(&env, minter)?;
 
         if !Self::has_active_nft(&env, &user) {
-            return;
+            return Ok(());
         }
 
         let metadata_key = DataKey::Metadata(user.clone());
-        let mut metadata = Self::get_or_migrate_metadata(&env, &user)
-            .unwrap_or_else(|| panic!("user does not have an NFT"));
+        let mut metadata =
+            Self::get_or_migrate_metadata(&env, &user).ok_or(NftError::NftNotFound)?;
 
         let old_score = metadata.score;
         let decreased = old_score.saturating_sub(penalty_points);
         let new_score = decreased.max(Self::MIN_CREDIT_SCORE);
         if new_score == old_score {
-            return;
+            return Ok(());
         }
 
         metadata.score = new_score;
@@ -859,6 +872,7 @@ impl RemittanceNFT {
             (symbol_short!("ScoreDecr"), user),
             (old_score, new_score, symbol_short!("PEN")),
         );
+        Ok(())
     }
 
     /// Update the history hash for a user's NFT.
