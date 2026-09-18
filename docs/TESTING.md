@@ -216,7 +216,7 @@ contracts/
 | `multisig_governance_fuzz` | Governance | Approval counts, timelock |
 | `fuzz_target_1` | Integration | Cross-contract invariants |
 
-See [FUZZING_README.md](../FUZZING_README.md) and [contracts/fuzz_invariants.md](../contracts/fuzz_invariants.md) for invariant definitions.
+See [FUZZING_README.md](../contracts/FUZZING_README.md) and [contracts/fuzz_invariants.md](../contracts/fuzz_invariants.md) for invariant definitions.
 
 ## CI Pipeline
 

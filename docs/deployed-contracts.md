@@ -31,12 +31,22 @@ Explorer: `https://stellar.expert/explorer/testnet`
 | `loan_manager` | `LOAN_MANAGER_CONTRACT_ID` |
 | `lending_pool` | `LENDING_POOL_CONTRACT_ID` |
 | `remittance_nft` | `REMITTANCE_NFT_CONTRACT_ID` |
-| `multisig_governance` | `MULTISIG_GOVERNANCE_CONTRACT_ID` |
+| `multisig_governance` (governs the LoanManager) | `MULTISIG_GOVERNANCE_CONTRACT_ID` |
+| `multisig_governance` (governs the LendingPool) | `POOL_GOVERNANCE_CONTRACT_ID` |
+| `multisig_governance` (governs the RemittanceNFT) | `NFT_GOVERNANCE_CONTRACT_ID` |
 | `token` | `POOL_TOKEN_ADDRESS` |
+
+There is one governance instance per governed contract, because
+`finalize_admin_transfer` invokes `set_admin` on the single target the instance was
+initialised with. `GET /version` reports all three so the wiring can be verified
+from the running service.
 
 #### Frontend (`frontend/.env`)
 
-The frontend does not currently read contract IDs directly from env. It calls the backend API, which resolves contract addresses at runtime using the backend vars above.
+The frontend does not resolve contract IDs for its read paths; it calls the backend
+API, which uses the backend vars above. The deploy script still writes
+`NEXT_PUBLIC_*` IDs into `frontend/.env.local` for the paths that build transactions
+in the browser.
 
 ---
 

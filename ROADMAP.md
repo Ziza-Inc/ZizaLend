@@ -91,4 +91,4 @@ These are areas the project needs before it can be called production-ready:
 
 ## How to Contribute
 
-See the [Contributing Guide](CONTRIBUTING.md) and [open issues](https://github.com/Ziza-Lend/ZizaLend/issues) for ways to help. Beginner-friendly tasks are tagged [`good first issue`](https://github.com/Ziza-Lend/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+See the [Contributing Guide](CONTRIBUTING.md) and [open issues](https://github.com/Ziza-Inc/ZizaLend/issues) for ways to help. Beginner-friendly tasks are tagged [`good first issue`](https://github.com/Ziza-Inc/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).

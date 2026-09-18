@@ -22,7 +22,7 @@ Developed a scannable vertical feature list highlighting core value propositions
 
 - Lend to Earn — passive yield on deposited assets
 - Gamified Quests — XP rewards tied to financial actions
-- Secure Vaults — audited smart contract infrastructure
+- Secure Vaults — on-chain smart contract infrastructure
 
 Each feature card uses a two-column layout (icon + copy) optimized for thumb-zone interaction on mobile.
 

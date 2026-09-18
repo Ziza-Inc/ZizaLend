@@ -500,7 +500,7 @@ All skeleton files are in `components/skeletons/`:
 | Hero | Full-bleed background | Platform name, tagline, TVL ($1.2B+) and Avg. Yield (4.8%) metrics |
 | | Primary CTA button | "Enter the Citadel" — full-width purple button |
 | Feature Suite | 3 feature cards | Lend to Earn, Gamified Quests, Secure Vaults — icon + copy |
-| Trust Section | Audit badges, Stellar logo | Certified audit badges, network callout |
+| Trust Section | Stellar logo | Network callout; no audit badge until an external audit is complete |
 | | Closing module | "The Gates are Opening" urgency headline |
 | Sticky Nav | 4 tabs (bottom) | Citadel, Vaults, Quests, Empire |
 

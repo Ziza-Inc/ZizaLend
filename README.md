@@ -5,11 +5,11 @@
 
   <!-- CI / Quality Gates + License -->
 
-<a href="https://github.com/Ziza-Lend/ZizaLend/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Lend/ZizaLend/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI" /></a>
-<a href="https://github.com/Ziza-Lend/ZizaLend/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Lend/ZizaLend/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL" /></a>
-<a href="https://github.com/Ziza-Lend/ZizaLend/actions/workflows/deploy-staging.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Lend/ZizaLend/deploy-staging.yml?branch=main&label=Deploy%20Staging&logo=docker&style=flat-square" alt="Deploy Staging" /></a>
-<a href="https://github.com/Ziza-Lend/ZizaLend/actions/workflows/commitlint.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Lend/ZizaLend/commitlint.yml?branch=main&label=Commitlint&logo=conventionalcommits&style=flat-square" alt="Commitlint" /></a>
-<a href="LICENSE"><img src="https://img.shields.io/github/license/Ziza-Lend/ZizaLend?style=flat-square&color=blue" alt="License: ISC" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/codeql.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/codeql.yml?branch=main&label=CodeQL&logo=github&style=flat-square" alt="CodeQL" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/deploy-staging.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/deploy-staging.yml?branch=main&label=Deploy%20Staging&logo=docker&style=flat-square" alt="Deploy Staging" /></a>
+<a href="https://github.com/Ziza-Inc/ZizaLend/actions/workflows/commitlint.yml"><img src="https://img.shields.io/github/actions/workflow/status/Ziza-Inc/ZizaLend/commitlint.yml?branch=main&label=Commitlint&logo=conventionalcommits&style=flat-square" alt="Commitlint" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/Ziza-Inc/ZizaLend?style=flat-square&color=blue" alt="License: ISC" /></a>
 
   <!-- Tech Stack (versions verified against package.json / Cargo.toml / CI) -->
   <br/>
@@ -53,7 +53,7 @@
 
 Every remittance you send home is proof of your reliability. Zizalend captures that proof on the Stellar blockchain, turns it into a verifiable on-chain credit identity, and unlocks access to fair, collateralized loans — no credit bureau, no bank branch, no discrimination. Just the financial reputation you've already earned.
 
-Lenders provide liquidity to transparent, audited pools and earn real yield backed by real repayment history. Not algorithms. Not guesswork. **Real people. Real trust. Real returns.**
+Lenders provide liquidity to transparent, on-chain pools and earn real yield backed by real repayment history. Not algorithms. Not guesswork. **Real people. Real trust. Real returns.**
 
 ```mermaid
 flowchart LR
@@ -87,7 +87,7 @@ flowchart LR
 
 | Feature                  | Description                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------- |
-| **Transparent Yield**    | Earn interest by providing liquidity to audited, on-chain lending pools             |
+| **Transparent Yield**    | Earn interest by providing liquidity to on-chain lending pools                      |
 | **Pool Analytics**       | Real-time utilization rates, stability scores, risk tiers, and yield projections    |
 | **Position Tracking**    | Monitor deployed capital, accrued yield, and transaction history with CSV export    |
 | **Yield Charts**         | Interactive earnings visualization with 1D/1W/1M/All timeframe toggles              |
@@ -285,7 +285,7 @@ rustup target add wasm32-unknown-unknown
 ### Docker (Recommended)
 
 ```bash
-git clone https://github.com/Ziza-Lend/ZizaLend.git
+git clone https://github.com/Ziza-Inc/ZizaLend.git
 cd ZizaLend
 cp backend/.env.example backend/.env
 docker compose up --build
@@ -378,7 +378,7 @@ cargo fuzz run lending_pool_fuzz
 | **[docs/contracts-ACCESS-CONTROL.md](docs/contracts-ACCESS-CONTROL.md)** | Permission matrix for all 4 contracts                                    |
 | **[docs/runbooks/](docs/runbooks/)**                                     | Operational runbooks (indexer recovery, staging deployment)              |
 | **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**                   | Common issues and resolutions                                            |
-| **[DESIGN.md](DESIGN.md)**                                               | UI/UX design spec with component specifications                          |
+| **[DESIGN.md](docs/DESIGN.md)**                                               | UI/UX design spec with component specifications                          |
 | **[ROADMAP.md](ROADMAP.md)**                                             | Product roadmap and planned features                                     |
 | **[Swagger UI](http://localhost:3001/docs)**                             | Interactive API documentation (dev only)                                 |
 
@@ -416,7 +416,7 @@ cd contracts && cargo test
 cd contracts/fuzz && cargo fuzz run lending_pool_fuzz
 ```
 
-See **[FUZZING_README.md](FUZZING_README.md)** for comprehensive fuzz testing documentation including invariant definitions, campaign scripts, and coverage analysis.
+See **[FUZZING_README.md](contracts/FUZZING_README.md)** for comprehensive fuzz testing documentation including invariant definitions, campaign scripts, and coverage analysis.
 
 ---
 
@@ -455,7 +455,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for detaile
 
 ### Good First Issues
 
-Browse [good first issues](https://github.com/Ziza-Lend/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) with detailed specs at **[docs/contributor-issues/](docs/contributor-issues/)**.
+Browse [good first issues](https://github.com/Ziza-Inc/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) with detailed specs at **[docs/contributor-issues/](docs/contributor-issues/)**.
 
 ### Branch Conventions
 

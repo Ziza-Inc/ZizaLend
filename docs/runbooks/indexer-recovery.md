@@ -168,7 +168,7 @@ Use this after a hotfix deployment to clear the quarantine backlog.
 
 ## 6. Escalation
 
-For incidents that cannot be resolved with the steps above, open a [GitHub issue](https://github.com/Ziza-Lend/ZizaLend/issues/new) with the following details:
+For incidents that cannot be resolved with the steps above, open a [GitHub issue](https://github.com/Ziza-Inc/ZizaLend/issues/new) with the following details:
 
 - Ledger range of the gap
 - Indexer status JSON output

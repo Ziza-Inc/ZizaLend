@@ -243,7 +243,7 @@ npm run migrate:down -- --count 1
 
 ## Getting Help
 
-- **GitHub Issues:** [https://github.com/Ziza-Lend/ZizaLend/issues](https://github.com/Ziza-Lend/ZizaLend/issues)
+- **GitHub Issues:** [https://github.com/Ziza-Inc/ZizaLend/issues](https://github.com/Ziza-Inc/ZizaLend/issues)
 - **Internal Wiki:** [docs/wiki/README.md](./wiki/README.md)
 - **Architecture:** [ARCHITECTURE.md](../ARCHITECTURE.md)
 - **Runbooks:** [docs/runbooks/](./runbooks/)

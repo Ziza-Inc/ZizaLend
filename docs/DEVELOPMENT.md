@@ -24,7 +24,7 @@ rustup target add wasm32-unknown-unknown
 The fastest way to get everything running:
 
 ```bash
-git clone https://github.com/Ziza-Lend/ZizaLend.git
+git clone https://github.com/Ziza-Inc/ZizaLend.git
 cd ZizaLend
 docker compose up --build
 ```
@@ -42,7 +42,7 @@ docker compose up --build
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/Ziza-Lend/ZizaLend.git
+git clone https://github.com/Ziza-Inc/ZizaLend.git
 cd ZizaLend
 ```
 
@@ -55,7 +55,7 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 ```
 
-The canonical reference for all environment variables is [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md).
+The canonical reference for all environment variables is [docs/ENVIRONMENT.md](ENVIRONMENT.md).
 
 ### 3. Backend
 
@@ -240,11 +240,11 @@ Migrations run in filename order. The CI pipeline validates:
 
 ### Schema Documentation
 
-Full database schema with tables, columns, indexes, and historical renames is at [docs/DATABASE.md](docs/DATABASE.md).
+Full database schema with tables, columns, indexes, and historical renames is at [docs/DATABASE.md](DATABASE.md).
 
 ## Testing
 
-See [docs/TESTING.md](docs/TESTING.md) for the complete testing guide.
+See [docs/TESTING.md](TESTING.md) for the complete testing guide.
 
 Quick reference:
 
@@ -266,26 +266,26 @@ The raw OpenAPI 3.0 spec is at `packages/openapi.json` and is auto-generated fro
 
 | Concept | Documentation |
 |---------|--------------|
-| System architecture | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Contract state machine | [docs/wiki/contract-state-machine.md](docs/wiki/contract-state-machine.md) |
-| Indexer sync flow | [docs/wiki/indexer-sync-flow.md](docs/wiki/indexer-sync-flow.md) |
-| JWT auth model | [docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) |
-| Frontend patterns | [docs/wiki/frontend-patterns.md](docs/wiki/frontend-patterns.md) |
-| API idempotency | [docs/wiki/api-idempotency.md](docs/wiki/api-idempotency.md) |
-| Webhook signatures | [docs/wiki/webhook-signatures.md](docs/wiki/webhook-signatures.md) |
+| System architecture | [ARCHITECTURE.md](../ARCHITECTURE.md) |
+| Contract state machine | [docs/wiki/contract-state-machine.md](wiki/contract-state-machine.md) |
+| Indexer sync flow | [docs/wiki/indexer-sync-flow.md](wiki/indexer-sync-flow.md) |
+| JWT auth model | [docs/SECURITY-MODEL.md](SECURITY-MODEL.md) |
+| Frontend patterns | [docs/wiki/frontend-patterns.md](wiki/frontend-patterns.md) |
+| API idempotency | [docs/wiki/api-idempotency.md](wiki/api-idempotency.md) |
+| Webhook signatures | [docs/wiki/webhook-signatures.md](wiki/webhook-signatures.md) |
 
 ## Staging Deployment
 
-Staging uses Docker Compose with GHCR images. See [docs/runbooks/README.md](docs/runbooks/README.md) for the full staging deployment runbook.
+Staging uses Docker Compose with GHCR images. See [docs/runbooks/README.md](runbooks/README.md) for the full staging deployment runbook.
 
 ## Troubleshooting
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common issues.
+See [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
 
 ## Resources
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Contribution guidelines
-- [ROADMAP.md](ROADMAP.md) — Product roadmap
-- [docs/wiki/README.md](docs/wiki/README.md) — Technical wiki
-- [docs/adr/README.md](docs/adr/README.md) — Architecture Decision Records
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — System architecture
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — Contribution guidelines
+- [ROADMAP.md](../ROADMAP.md) — Product roadmap
+- [docs/wiki/README.md](wiki/README.md) — Technical wiki
+- [docs/adr/README.md](adr/README.md) — Architecture Decision Records

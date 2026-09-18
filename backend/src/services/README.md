@@ -69,8 +69,8 @@ npm test -- services/
 ### Related Documentation
 
 - [Event Indexer deep-dive](#event-indexer-service) (below)
-- [Indexer Recovery Runbook](../../docs/runbooks/indexer-recovery.md)
-- [Webhooks Guide](../../docs/webhooks.md)
+- [Indexer Recovery Runbook](../../../docs/runbooks/indexer-recovery.md)
+- [Webhooks Guide](../../../docs/webhooks.md)
 
 ---
 
@@ -495,8 +495,8 @@ These services exist in the codebase but are **not currently started** in `index
 
 ### Related Documentation
 
-- [Indexer Recovery Runbook](../../docs/runbooks/indexer-recovery.md) — Troubleshooting indexer lag and manual re-sync
-- [Webhooks Guide](../../docs/webhooks.md) — Webhook retry behavior and signature verification
+- [Indexer Recovery Runbook](../../../docs/runbooks/indexer-recovery.md) — Troubleshooting indexer lag and manual re-sync
+- [Webhooks Guide](../../../docs/webhooks.md) — Webhook retry behavior and signature verification
 
 ### Monitoring
 
