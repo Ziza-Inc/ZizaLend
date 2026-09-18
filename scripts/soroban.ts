@@ -9,38 +9,38 @@
  * otherwise have been copied into the smoke test as well.
  */
 import {
-    Account,
-    Address,
-    Keypair,
-    Operation,
-    TransactionBuilder,
-    rpc as Rpc,
-    xdr,
-    StrKey,
-} from '@stellar/stellar-sdk';
-import { createHash } from 'crypto';
-import { toScVals } from './scval';
+  Account,
+  Address,
+  Keypair,
+  Operation,
+  TransactionBuilder,
+  rpc as Rpc,
+  xdr,
+  StrKey,
+} from "@stellar/stellar-sdk";
+import { createHash } from "crypto";
+import { toScVals } from "./scval";
 
 export const POLL_INTERVAL_MS = 2000;
 
 /** The built transaction type, before submission. */
-export type BuiltTransaction = ReturnType<TransactionBuilder['build']>;
+export type BuiltTransaction = ReturnType<TransactionBuilder["build"]>;
 
 /** The simulation and execution result of a submitted transaction. */
 export interface TxOutcome {
-    response: Rpc.Api.GetSuccessfulTransactionResponse;
-    /** The host function's return value, taken from simulation. */
-    retval: xdr.ScVal;
+  response: Rpc.Api.GetSuccessfulTransactionResponse;
+  /** The host function's return value, taken from simulation. */
+  retval: xdr.ScVal;
 }
 
 /** SHA-256 of the WASM bytes — the on-chain key a contract instance is created from. */
 export function computeWasmHash(wasm: Buffer): Buffer {
-    return createHash('sha256').update(wasm).digest();
+  return createHash("sha256").update(wasm).digest();
 }
 
 /** Deterministic per-contract salt, so re-runs address the same instances. */
 export function contractSalt(name: string): Buffer {
-    return createHash('sha256').update(`ZizaLend:${name}`).digest();
+  return createHash("sha256").update(`ZizaLend:${name}`).digest();
 }
 
 /**
@@ -58,45 +58,53 @@ export function contractSalt(name: string): Buffer {
  * deployment to be repaired by hand.
  */
 export function deriveContractId(
-    account: Keypair,
-    salt: Buffer,
-    networkPassphrase: string,
+  account: Keypair,
+  salt: Buffer,
+  networkPassphrase: string,
 ): string {
-    const networkId = createHash('sha256').update(networkPassphrase).digest();
-    const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
-        new xdr.HashIdPreimageContractId({
-            networkId,
-            contractIdPreimage:
-                xdr.ContractIdPreimage.contractIdPreimageFromAddress(
-                    new xdr.ContractIdPreimageFromAddress({
-                        address: Address.fromString(
-                            account.publicKey(),
-                        ).toScAddress(),
-                        salt,
-                    }),
-                ),
+  // SHA-256 of the network passphrase is the network ID *by definition*, not a stand-in for
+  // a key-derivation function: the Soroban contract-ID preimage takes the 32-byte network
+  // identifier as its first field, and that identifier is specified as this hash. The
+  // passphrase is public information — "Test SDF Network ; September 2015" for testnet,
+  // "Public Global Stellar Network ; September 2015" for mainnet — so there is no secret
+  // here to protect, and swapping in a password KDF would change every derived address and
+  // break the derivation against the host.
+  //
+  // CodeQL's `js/insufficient-password-hash` reads the identifier name and flags this. The
+  // finding is dismissed as a false positive on the Security tab; this comment is here so
+  // the next reader does not have to re-derive that conclusion from scratch.
+  const networkId = createHash("sha256").update(networkPassphrase).digest();
+  const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
+    new xdr.HashIdPreimageContractId({
+      networkId,
+      contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+        new xdr.ContractIdPreimageFromAddress({
+          address: Address.fromString(account.publicKey()).toScAddress(),
+          salt,
         }),
-    );
-    return StrKey.encodeContract(
-        createHash('sha256').update(preimage.toXDR()).digest(),
-    );
+      ),
+    }),
+  );
+  return StrKey.encodeContract(
+    createHash("sha256").update(preimage.toXDR()).digest(),
+  );
 }
 
 /** True when a contract instance already exists at `contractId`. */
 export async function contractInstanceExists(
-    server: Rpc.Server,
-    contractId: string,
+  server: Rpc.Server,
+  contractId: string,
 ): Promise<boolean> {
-    try {
-        await server.getContractData(
-            contractId,
-            xdr.ScVal.scvLedgerKeyContractInstance(),
-            Rpc.Durability.Persistent,
-        );
-        return true;
-    } catch {
-        return false;
-    }
+  try {
+    await server.getContractData(
+      contractId,
+      xdr.ScVal.scvLedgerKeyContractInstance(),
+      Rpc.Durability.Persistent,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -107,12 +115,12 @@ export async function contractInstanceExists(
  * other shape so callers can fall back.
  */
 export function contractIdFromRetval(retval: xdr.ScVal): string | undefined {
-    if (retval.switch().name !== 'scvAddress') return undefined;
-    const address = retval.address();
-    if (address.switch().name !== 'scAddressTypeContract') return undefined;
-    return StrKey.encodeContract(
-        Buffer.from(address.contractId() as unknown as Uint8Array),
-    );
+  if (retval.switch().name !== "scvAddress") return undefined;
+  const address = retval.address();
+  if (address.switch().name !== "scAddressTypeContract") return undefined;
+  return StrKey.encodeContract(
+    Buffer.from(address.contractId() as unknown as Uint8Array),
+  );
 }
 
 /**
@@ -124,120 +132,116 @@ export function contractIdFromRetval(retval: xdr.ScVal): string | undefined {
  * throwing so the caller can decide.
  */
 export function extractContractId(
-    resultMeta: xdr.TransactionMeta,
+  resultMeta: xdr.TransactionMeta,
 ): string | undefined {
-    let v3: xdr.TransactionMetaV3;
-    try {
-        v3 = resultMeta.v3();
-    } catch {
-        return undefined;
-    }
-    for (const opMeta of v3.operations()) {
-        for (const change of opMeta.changes()) {
-            if (change.switch().name !== 'ledgerEntryCreated') continue;
-            const data = change.created().data();
-            if (data.switch().name !== 'contractData') continue;
-            const cd = data.contractData();
-            if (cd.key().switch().name !== 'scvLedgerKeyContractInstance')
-                continue;
-            const contract = cd.contract();
-            if (contract.switch().name === 'scAddressTypeContract') {
-                return StrKey.encodeContract(
-                    Buffer.from(contract.contractId() as unknown as Uint8Array),
-                );
-            }
-        }
-    }
+  let v3: xdr.TransactionMetaV3;
+  try {
+    v3 = resultMeta.v3();
+  } catch {
     return undefined;
+  }
+  for (const opMeta of v3.operations()) {
+    for (const change of opMeta.changes()) {
+      if (change.switch().name !== "ledgerEntryCreated") continue;
+      const data = change.created().data();
+      if (data.switch().name !== "contractData") continue;
+      const cd = data.contractData();
+      if (cd.key().switch().name !== "scvLedgerKeyContractInstance") continue;
+      const contract = cd.contract();
+      if (contract.switch().name === "scAddressTypeContract") {
+        return StrKey.encodeContract(
+          Buffer.from(contract.contractId() as unknown as Uint8Array),
+        );
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Simulate, sign, submit, and poll a transaction to a terminal result. */
 export async function sendTx(
-    server: Rpc.Server,
-    tx: BuiltTransaction,
-    account: Keypair,
-    onSubmitted?: (hash: string) => void,
+  server: Rpc.Server,
+  tx: BuiltTransaction,
+  account: Keypair,
+  onSubmitted?: (hash: string) => void,
 ): Promise<TxOutcome> {
-    const sim = await server.simulateTransaction(tx);
-    if (Rpc.Api.isSimulationError(sim)) {
-        throw new Error(`Simulation failed: ${sim.error}`);
-    }
+  const sim = await server.simulateTransaction(tx);
+  if (Rpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation failed: ${sim.error}`);
+  }
 
-    const preparedTx = await server.prepareTransaction(tx);
-    preparedTx.sign(account);
+  const preparedTx = await server.prepareTransaction(tx);
+  preparedTx.sign(account);
 
-    const sendResponse = await server.sendTransaction(preparedTx);
-    if (sendResponse.status !== 'PENDING') {
-        throw new Error(
-            `Send failed: ${JSON.stringify(sendResponse, null, 2)}`,
-        );
-    }
+  const sendResponse = await server.sendTransaction(preparedTx);
+  if (sendResponse.status !== "PENDING") {
+    throw new Error(`Send failed: ${JSON.stringify(sendResponse, null, 2)}`);
+  }
 
-    onSubmitted?.(sendResponse.hash);
+  onSubmitted?.(sendResponse.hash);
 
-    let txResponse = await server.getTransaction(sendResponse.hash);
-    while (txResponse.status === 'NOT_FOUND') {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        txResponse = await server.getTransaction(sendResponse.hash);
-    }
+  let txResponse = await server.getTransaction(sendResponse.hash);
+  while (txResponse.status === "NOT_FOUND") {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    txResponse = await server.getTransaction(sendResponse.hash);
+  }
 
-    if (txResponse.status !== 'SUCCESS') {
-        throw new Error(
-            `Transaction failed: ${JSON.stringify(txResponse, null, 2)}`,
-        );
-    }
+  if (txResponse.status !== "SUCCESS") {
+    throw new Error(
+      `Transaction failed: ${JSON.stringify(txResponse, null, 2)}`,
+    );
+  }
 
-    return {
-        response: txResponse as Rpc.Api.GetSuccessfulTransactionResponse,
-        retval: sim.result!.retval,
-    };
+  return {
+    response: txResponse as Rpc.Api.GetSuccessfulTransactionResponse,
+    retval: sim.result!.retval,
+  };
 }
 
 /** Build an invocation of `method` on `contractId` without submitting it. */
 export function buildInvocation(
-    source: Account,
-    contractId: string,
-    method: string,
-    args: unknown[],
-    networkPassphrase: string,
+  source: Account,
+  contractId: string,
+  method: string,
+  args: unknown[],
+  networkPassphrase: string,
 ): BuiltTransaction {
-    return new TransactionBuilder(source, { fee: '100000', networkPassphrase })
-        .addOperation(
-            Operation.invokeHostFunction({
-                func: xdr.HostFunction.hostFunctionTypeInvokeContract(
-                    new xdr.InvokeContractArgs({
-                        contractAddress:
-                            Address.fromString(contractId).toScAddress(),
-                        functionName: method,
-                        args: toScVals(args),
-                    }),
-                ),
-                auth: [],
-            }),
-        )
-        .setTimeout(30)
-        .build();
+  return new TransactionBuilder(source, { fee: "100000", networkPassphrase })
+    .addOperation(
+      Operation.invokeHostFunction({
+        func: xdr.HostFunction.hostFunctionTypeInvokeContract(
+          new xdr.InvokeContractArgs({
+            contractAddress: Address.fromString(contractId).toScAddress(),
+            functionName: method,
+            args: toScVals(args),
+          }),
+        ),
+        auth: [],
+      }),
+    )
+    .setTimeout(30)
+    .build();
 }
 
 /** Call a contract function, submitting the transaction. */
 export async function invoke(
-    server: Rpc.Server,
-    contractId: string,
-    method: string,
-    args: unknown[],
-    account: Keypair,
-    networkPassphrase: string,
-    onSubmitted?: (hash: string) => void,
+  server: Rpc.Server,
+  contractId: string,
+  method: string,
+  args: unknown[],
+  account: Keypair,
+  networkPassphrase: string,
+  onSubmitted?: (hash: string) => void,
 ): Promise<TxOutcome> {
-    const source = await server.getAccount(account.publicKey());
-    const tx = buildInvocation(
-        source,
-        contractId,
-        method,
-        args,
-        networkPassphrase,
-    );
-    return sendTx(server, tx, account, onSubmitted);
+  const source = await server.getAccount(account.publicKey());
+  const tx = buildInvocation(
+    source,
+    contractId,
+    method,
+    args,
+    networkPassphrase,
+  );
+  return sendTx(server, tx, account, onSubmitted);
 }
 
 /**
@@ -247,24 +251,24 @@ export async function invoke(
  * verification step from mutating the state it is verifying.
  */
 export async function readContract(
-    server: Rpc.Server,
-    contractId: string,
-    method: string,
-    args: unknown[],
-    account: Keypair,
-    networkPassphrase: string,
+  server: Rpc.Server,
+  contractId: string,
+  method: string,
+  args: unknown[],
+  account: Keypair,
+  networkPassphrase: string,
 ): Promise<xdr.ScVal> {
-    const source = await server.getAccount(account.publicKey());
-    const tx = buildInvocation(
-        source,
-        contractId,
-        method,
-        args,
-        networkPassphrase,
-    );
-    const sim = await server.simulateTransaction(tx);
-    if (Rpc.Api.isSimulationError(sim)) {
-        throw new Error(`Simulation of ${method} failed: ${sim.error}`);
-    }
-    return sim.result!.retval;
+  const source = await server.getAccount(account.publicKey());
+  const tx = buildInvocation(
+    source,
+    contractId,
+    method,
+    args,
+    networkPassphrase,
+  );
+  const sim = await server.simulateTransaction(tx);
+  if (Rpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation of ${method} failed: ${sim.error}`);
+  }
+  return sim.result!.retval;
 }
