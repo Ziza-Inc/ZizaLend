@@ -30,6 +30,19 @@ pub fn yield_distributed(env: &Env, token: Address, amount: i128) {
     env.events().publish(topics, amount);
 }
 
+/// Emitted when the admin registers `token` as a supported market.
+pub fn token_allowed(env: &Env, token: Address) {
+    let topics = (Symbol::new(env, "TokenAllowed"), token);
+    env.events().publish(topics, ());
+}
+
+/// Emitted when the admin stops accepting new deposits for `token`. Existing
+/// positions are unaffected, so this is not a wind-down of the market.
+pub fn token_disallowed(env: &Env, token: Address) {
+    let topics = (Symbol::new(env, "TokenDisallowed"), token);
+    env.events().publish(topics, ());
+}
+
 pub fn deposit_cap_updated(env: &Env, token: Address, old_cap: i128, new_cap: i128) {
     let topics = (Symbol::new(env, "DepositCapUpdated"), token);
     env.events().publish(topics, (old_cap, new_cap));

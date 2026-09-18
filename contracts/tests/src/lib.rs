@@ -45,13 +45,15 @@ mod tests {
         let pool_id = env.register(LendingPool, ());
         let pool_client = LendingPoolClient::new(env, &pool_id);
         pool_client.initialize(&admin);
+        // Deposits are refused for unregistered tokens, so the fixture must open its
+        // market before the pool will accept it.
+        pool_client.allow_token(&token_id);
         pool_client.set_withdrawal_cooldown(&0);
 
         // LoanManager
         let manager_id = env.register(LoanManager, ());
         let manager_client = LoanManagerClient::new(env, &manager_id);
         nft_client.authorize_minter(&manager_id);
-
         // The NFT moves a borrower's score only at the request of its single
         // configured recorder, so the manager must be registered as one.
         nft_client.set_score_recorder(&manager_id);

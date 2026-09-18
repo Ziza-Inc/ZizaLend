@@ -52,12 +52,14 @@ fn setup() -> Fixture {
     let pool_id = env.register(LendingPool, ());
     let pool = LendingPoolClient::new(&env, &pool_id);
     pool.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so the fixture must open its
+    // market before the pool will accept it.
+    pool.allow_token(&token_id);
     pool.set_withdrawal_cooldown(&0);
 
     let manager_id = env.register(LoanManager, ());
     let manager = LoanManagerClient::new(&env, &manager_id);
     nft.authorize_minter(&manager_id);
-
     // The NFT moves a borrower's score only at the request of its single
     // configured recorder, so the manager must be registered as one.
     nft.set_score_recorder(&manager_id);

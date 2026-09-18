@@ -20,6 +20,9 @@ fn setup_pool(env: &Env) -> (LendingPoolClient, Address, TokenClient, Address) {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so every fixture has to open its
+    // market explicitly.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     // The outstanding counter is LoanManager-gated. These tests drive it
     // directly, so stand in a LoanManager address and let the test's mocked

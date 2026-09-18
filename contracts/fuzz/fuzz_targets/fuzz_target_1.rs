@@ -91,6 +91,8 @@ fuzz_target!(|actions: std::vec::Vec<FuzzAction>| {
     let pool_contract = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_contract);
     pool_client.initialize(&nft_admin);
+    // Deposits are refused for unregistered tokens.
+    pool_client.allow_token(&token_address);
     pool_client.set_withdrawal_cooldown(&0);
 
     // Deploy LoanManager and authorize it as a minter on the NFT contract so

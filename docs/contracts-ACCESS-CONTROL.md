@@ -65,12 +65,15 @@ bypassable. Now:
 5. manager.initialize(nft, pool, token, admin)
 6. pool.set_loan_manager(manager)                # MANDATORY
 7. nft.set_score_recorder(manager)               # MANDATORY
-8. gov.initialize(admin, target_contract)
-9. target.set_governance(governance)             # on pool, manager and nft
+8. pool.allow_token(token)                       # MANDATORY, once per served asset
+9. gov.initialize(admin, target_contract)
+10. target.set_governance(governance)            # on pool, manager and nft
 ```
 
 Step 6 is mandatory: without it `disburse` returns `LoanManagerNotSet` and **no
-loan can be funded**. Step 7 is likewise mandatory for scoring: without it
+loan can be funded**. Step 8 is mandatory before the first deposit: a deposit is
+what creates a market, and `deposit` rejects any token the admin has not
+registered with `TokenNotAllowed`. Step 7 is likewise mandatory for scoring: without it
 `update_score` and `decrease_score` reject the manager with
 `UnauthorizedScoreRecorder`, so repaying a loan no longer moves a borrower's
 score. That failure is deliberately safe and quiet in the sense that it stops
@@ -162,6 +165,8 @@ by `// CEI:` state commits — see inline comments on `approve_loan`,
 | `set_max_pool_size(token, max)` | admin | No | `MaxPoolSize(token)` | `DepositCapUpdated` | Caps tracked principal | n/a |
 | `set_withdrawal_cooldown(ledgers)` | admin | No | `WithdrawalCooldown` | `WithdrawalCooldownUpdated` | Withdrawal pacing | n/a |
 | `set_loan_manager(loan_manager)` | admin | No | `LoanManager` | `LoanManagerSet` | Grants the only role that may move principal out of the pool | n/a |
+| `allow_token(token)` | admin | No | `AllowedToken(token)` | `TokenAllowed` | Required before any deposit: without it `deposit` returns `TokenNotAllowed`, so the pool can never extend credit against an asset the admin did not vet, and an arbitrary caller cannot open markets to grow instance storage | n/a |
+| `disallow_token(token)` | admin | No | `AllowedToken(token)` removed | `TokenDisallowed` | Stops new deposits only. Withdrawals, repayments, and disbursements for existing loans are deliberately unaffected, so a delisting cannot strand lender funds | n/a |
 | `disburse(token, to, amount)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` +=, **then** transfers pool → `to` | `Disbursed` | The only path by which principal leaves the pool | CEI: outstanding written before the transfer |
 | `settle_outstanding(token, amount)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` -= (saturating at 0) | `OutstandingSettled` | Retires principal on repayment, refinance-down, or default | n/a |
 | `adjust_outstanding(token, delta)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` | (silent) | LoanManager bookkeeping (net-delta form of the two above) | CEI-safe |
@@ -197,7 +202,7 @@ the target ZizaLend contract.  Its cross-contract `invoke_contract` call in
 
 | Risk Class | Mitigation in code | Verify via |
 | --- | --- | --- |
-| Auth bypass | Every state-changing entry point calls `require_auth()`; admin paths check the stored admin; minting paths check the `AuthorizedMinter` set (capped at `MAX_AUTHORIZED_MINTERS = 32`) while *score* paths are gated on the single configured `ScoreRecorder`, so no authorised minter can write the reputation the LoanManager prices on; `apply_score_delta` applies no economic rule and is therefore admin-only; remint is strictly admin-gated; principal can only leave the pool via `LoanManager`-authorised `disburse`; `set_admin` is governance-gated once `set_governance` is called. Note that contract-address auth is *implicit* (invoker-based), so tests must exercise cross-contract transfers under realistic auth rather than `mock_all_auths*` | `contracts/tests/tests/real_auth.rs`, `contracts/tests/tests/admin_model.rs`; unit tests `test_authorized_minter_*`; fuzz target `StealWithdraw` |
+| Auth bypass | Every state-changing entry point calls `require_auth()`; admin paths check the stored admin; minting paths check the `AuthorizedMinter` set (capped at `MAX_AUTHORIZED_MINTERS = 32`) while *score* paths are gated on the single configured `ScoreRecorder`, so no authorised minter can write the reputation the LoanManager prices on; `apply_score_delta` applies no economic rule and is therefore admin-only; remint is strictly admin-gated; principal can only leave the pool via `LoanManager`-authorised `disburse`; deposits are gated on an admin-controlled per-token allowlist, so the set of served markets cannot be expanded by a caller; `set_admin` is governance-gated once `set_governance` is called. Note that contract-address auth is *implicit* (invoker-based), so tests must exercise cross-contract transfers under realistic auth rather than `mock_all_auths*` | `contracts/tests/tests/real_auth.rs`, `contracts/tests/tests/admin_model.rs`; unit tests `test_authorized_minter_*`; fuzz target `StealWithdraw` |
 | Reentrancy | CEI: state committed before any `token_client.transfer` on `approve_loan`, `repay`, `cancel_loan`, `reject_loan`, `liquidate`, `deposit_collateral`, `extend_loan`, `refinance_loan`; cross-contract loan manager finalize in multisig hits a synchronous `set_admin` | Static read of each function; fuzz target `fuzz_target_1.rs`; integration test `test_liquidate_is_cei_safe_against_reentrant_token` |
 | Integer overflow / DoS | `checked_mul` / `checked_div` / `checked_add` / `checked_rem` chains throughout; `MAX_RATIO_BPS = 10_000` caps; `MAX_PENALTY_MULTIPLIER = 2` caps debt ceiling; `MAX_LATE_FEE_CAP_BPS = 2500` | Integration test `test_interest_overflow_does_not_panic_loan`; fuzz targets assert `total_deposits` / `score` bounds |
 | Score / reputation abuse | `MAX_SCORE = 850` ceiling; `MAX_SCORE_HISTORY_ENTRIES = 50` truncation; `MIN_CREDIT_SCORE = 300` floor; `MIN_SCORE_UPDATE_REPAYMENT = 100` to reject zero-point repayment updates; `MAX_DEFAULT_BURN_THRESHOLD = 1000`; `TRANSFER_COOLDOWN_LEDGERS = 17280` | Fuzz target invariants; integration test `test_authorized_minter_cannot_resurrect_burned_account` |

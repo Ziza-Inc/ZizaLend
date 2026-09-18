@@ -81,6 +81,8 @@ pub enum PoolError {
     LoanManagerNotSet = 14,
     /// Caller is not the configured LoanManager
     UnauthorizedLoanManager = 15,
+    /// The token has not been registered as a market by the admin
+    TokenNotAllowed = 16,
 }
 
 /// Storage keys for the LendingPool contract.
@@ -96,6 +98,8 @@ pub enum DataKey {
     WithdrawalCooldown,
     /// token → max pool size cap (0 = unlimited)
     MaxPoolSize(Address),
+    /// token → whether the admin has registered it as a supported market
+    AllowedToken(Address),
     /// token → total LP shares outstanding across all providers
     TotalShares(Address),
     /// (provider, token) → LP shares held
@@ -176,6 +180,16 @@ impl LendingPool {
             .instance()
             .get(&DataKey::Admin)
             .expect("not initialized")
+    }
+
+    /// Internal form of the allowlist read, so entry points can consult it without
+    /// cloning the `Env`.
+    fn token_is_allowed(env: &Env, token: &Address) -> bool {
+        Self::bump_instance_ttl(env);
+        env.storage()
+            .instance()
+            .get(&DataKey::AllowedToken(token.clone()))
+            .unwrap_or(false)
     }
 
     fn read_pool_balance(env: &Env, token: &Address) -> i128 {
@@ -582,6 +596,49 @@ impl LendingPool {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
+    /// Register `token` as a supported market.
+    ///
+    /// `deposit` rejects any token that has not been registered, so this is the only
+    /// way to open a market. Requires admin authorization.
+    ///
+    /// Registering a token does not by itself permit a loan against it: the
+    /// LoanManager holds its own configured token. This gates the pool's deposits.
+    pub fn allow_token(env: Env, token: Address) -> Result<(), PoolError> {
+        Self::admin(&env).require_auth();
+        let was_allowed = Self::token_is_allowed(&env, &token);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowedToken(token.clone()), &true);
+        Self::bump_instance_ttl(&env);
+        if !was_allowed {
+            token_allowed(&env, token);
+        }
+        Ok(())
+    }
+
+    /// Stop accepting new deposits for `token`.
+    ///
+    /// Deliberately does not touch existing positions: withdrawals, repayments, and
+    /// disbursements for already-approved loans keep working, so delisting an asset
+    /// can never strand a lender's funds. Only new deposits are refused.
+    pub fn disallow_token(env: Env, token: Address) -> Result<(), PoolError> {
+        Self::admin(&env).require_auth();
+        let was_allowed = Self::token_is_allowed(&env, &token);
+        env.storage()
+            .instance()
+            .remove(&DataKey::AllowedToken(token.clone()));
+        Self::bump_instance_ttl(&env);
+        if was_allowed {
+            token_disallowed(&env, token);
+        }
+        Ok(())
+    }
+
+    /// Whether `token` has been registered as a supported market.
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        Self::token_is_allowed(&env, &token)
+    }
+
     /// Set the maximum pool size cap for a given token.
     ///
     /// When `max > 0`, deposits that would push `TotalDeposits` above this
@@ -684,6 +741,19 @@ impl LendingPool {
 
         if amount <= 0 {
             return Err(PoolError::InvalidAmount);
+        }
+
+        // A deposit is what creates a market: it is the first write of the per-token
+        // storage keys, and the first time this contract calls out to the token's
+        // `transfer`. Both mean the set of tokens the pool serves has to be the
+        // admin's decision, not any caller's.
+        //
+        // Without this, any address could open unlimited markets by depositing 100
+        // units of a token contract of its own choosing, growing the contract's
+        // instance storage without bound, and the pool would extend credit against
+        // assets it never vetted.
+        if !Self::token_is_allowed(&env, &token) {
+            return Err(PoolError::TokenNotAllowed);
         }
 
         // Minimum deposit guard: prevents storage-DoS via tiny deposits.

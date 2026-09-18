@@ -1,4 +1,4 @@
-use crate::{events, LendingPool, LendingPoolClient};
+use crate::{events, LendingPool, LendingPoolClient, PoolError};
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger as _};
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient;
@@ -16,6 +16,120 @@ fn create_token_contract<'a>(
 
 fn create_upgrade_hash(env: &Env) -> BytesN<32> {
     BytesN::from_array(env, &[7u8; 32])
+}
+
+// ── Market allowlist ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_deposit_is_rejected_for_an_unregistered_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, stellar, _) = create_token_contract(&env, &admin);
+
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+
+    // A deposit is what creates a market: it is the first write of the per-token
+    // storage keys and the first call out to the token contract. Neither should be
+    // at the discretion of an arbitrary caller.
+    assert!(!pool_client.is_token_allowed(&token_id));
+    assert_eq!(
+        pool_client.try_deposit(&provider, &token_id, &1_000),
+        Err(Ok(PoolError::TokenNotAllowed))
+    );
+    assert_eq!(pool_client.get_shares(&provider, &token_id), 0);
+
+    // Once the admin registers it, the same deposit goes through.
+    pool_client.allow_token(&token_id);
+    assert!(pool_client.is_token_allowed(&token_id));
+    pool_client.deposit(&provider, &token_id, &1_000);
+    assert_eq!(pool_client.get_shares(&provider, &token_id), 1_000);
+}
+
+#[test]
+fn test_markets_are_registered_independently_per_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_a, stellar_a, _) = create_token_contract(&env, &admin);
+    let (token_b, stellar_b, _) = create_token_contract(&env, &admin);
+
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+
+    let provider = Address::generate(&env);
+    stellar_a.mint(&provider, &1_000);
+    stellar_b.mint(&provider, &1_000);
+
+    pool_client.allow_token(&token_a);
+
+    pool_client.deposit(&provider, &token_a, &1_000);
+    assert_eq!(
+        pool_client.try_deposit(&provider, &token_b, &1_000),
+        Err(Ok(PoolError::TokenNotAllowed)),
+        "registering one market must not open every market"
+    );
+    assert_eq!(pool_client.get_total_shares(&token_b), 0);
+}
+
+#[test]
+fn test_disallowed_token_stops_new_deposits_but_keeps_positions_withdrawable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, stellar, token_client) = create_token_contract(&env, &admin);
+
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.allow_token(&token_id);
+    pool_client.set_withdrawal_cooldown(&0);
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1_000);
+    pool_client.deposit(&provider, &token_id, &1_000);
+
+    pool_client.disallow_token(&token_id);
+    assert!(!pool_client.is_token_allowed(&token_id));
+
+    assert_eq!(
+        pool_client.try_deposit(&provider, &token_id, &500),
+        Err(Ok(PoolError::TokenNotAllowed))
+    );
+
+    // Delisting must never strand a lender: the market stops accepting new money
+    // but existing claims remain fully redeemable.
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 1);
+    pool_client.withdraw(&provider, &token_id, &1_000);
+    assert_eq!(token_client.balance(&provider), 1_000);
+    assert_eq!(pool_client.get_total_shares(&token_id), 0);
+}
+
+#[test]
+#[should_panic]
+fn test_allow_token_requires_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, _stellar, _) = create_token_contract(&env, &admin);
+
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+
+    env.mock_auths(&[]);
+    pool_client.allow_token(&token_id);
 }
 
 #[test]
@@ -61,6 +175,9 @@ fn test_deposit_flow() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -111,6 +228,9 @@ fn test_deposit_unauthorized() {
 
     env.mock_all_auths();
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     stellar_asset_client.mint(&Address::generate(&env), &5000);
 
     let provider = Address::generate(&env);
@@ -134,6 +254,9 @@ fn test_withdraw_flow() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     assert_eq!(pool_client.get_withdrawal_cooldown(), 1_440);
     pool_client.set_withdrawal_cooldown(&0);
 
@@ -187,6 +310,9 @@ fn test_insufficient_balance_withdraw_panic() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -209,6 +335,9 @@ fn test_immediate_withdraw_panics_when_cooldown_active() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
 
     let provider = Address::generate(&env);
     stellar_asset_client.mint(&provider, &5_000);
@@ -228,6 +357,9 @@ fn test_withdraw_succeeds_after_cooldown() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&5);
     assert_eq!(pool_client.get_withdrawal_cooldown(), 5);
 
@@ -270,6 +402,9 @@ fn test_get_withdrawal_available_at_fresh_deposit() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&5);
     assert_eq!(pool_client.get_withdrawal_cooldown(), 5);
 
@@ -301,6 +436,9 @@ fn test_get_withdrawal_available_at_after_cooldown() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&5);
     assert_eq!(pool_client.get_withdrawal_cooldown(), 5);
 
@@ -358,6 +496,9 @@ fn test_get_withdrawal_available_at_cooldown_disabled() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     assert_eq!(pool_client.get_withdrawal_cooldown(), 0);
 
@@ -387,6 +528,9 @@ fn test_emergency_withdraw_bypasses_pause_and_cooldown() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&100);
 
     let provider = Address::generate(&env);
@@ -423,6 +567,7 @@ fn test_deposit_withdraw_invariants() {
         let pool_id = env.register(LendingPool, ());
         let pool_client = LendingPoolClient::new(&env, &pool_id);
         pool_client.initialize(&token_admin);
+        pool_client.allow_token(&token_id);
         pool_client.set_withdrawal_cooldown(&0);
 
         let provider = Address::generate(&env);
@@ -468,6 +613,9 @@ fn test_share_price_increases_when_interest_arrives() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -493,6 +641,9 @@ fn test_yield_distributed_event_updates_total_yield_distributed() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
 
     assert_eq!(pool_client.get_total_yield_distributed(&token_id), 0);
 
@@ -523,6 +674,9 @@ fn test_withdraw_returns_principal_plus_interest() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -556,6 +710,9 @@ fn test_pro_rata_yield_distribution_on_withdrawal() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider_a = Address::generate(&env);
@@ -600,6 +757,9 @@ fn test_subsequent_depositor_does_not_dilute_existing_holders() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider_a = Address::generate(&env);
@@ -647,6 +807,9 @@ fn test_full_loan_cycle_with_interest() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -683,6 +846,9 @@ fn test_pool_stats_reflect_funds_allocated_and_returned() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     pool_client.set_loan_manager(&Address::generate(&env));
 
@@ -727,6 +893,9 @@ fn test_many_depositors_receive_proportional_yield() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let depositors = [
@@ -887,6 +1056,9 @@ fn test_deposit_within_cap_succeeds() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     pool_client.set_max_pool_size(&token_id, &5_000);
 
@@ -910,6 +1082,9 @@ fn test_deposit_exceeds_cap_panics() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_max_pool_size(&token_id, &1_000);
 
     let provider = Address::generate(&env);
@@ -929,6 +1104,9 @@ fn test_withdraw_reduces_total_deposits() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_max_pool_size(&token_id, &5_000);
     pool_client.set_withdrawal_cooldown(&0);
 
@@ -955,6 +1133,9 @@ fn test_deposit_after_withdraw_frees_cap_space() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_max_pool_size(&token_id, &3_000);
     pool_client.set_withdrawal_cooldown(&0);
 
@@ -983,6 +1164,9 @@ fn test_no_cap_allows_unlimited_deposits() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1021,6 +1205,9 @@ fn test_pool_stats() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     pool_client.set_loan_manager(&Address::generate(&env));
 
@@ -1136,6 +1323,9 @@ fn test_deposit_blocked_when_paused() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
 
     let provider = Address::generate(&env);
     stellar_asset_client.mint(&provider, &1_000);
@@ -1161,6 +1351,9 @@ fn test_withdraw_blocked_when_paused() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1195,6 +1388,9 @@ fn test_get_depositor_yield_no_deposit() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
 
     let provider = Address::generate(&env);
     assert_eq!(
@@ -1213,6 +1409,9 @@ fn test_get_depositor_yield_reflects_accrued_interest() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1246,6 +1445,10 @@ fn test_multiple_tokens_independence() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open both
+    // of its markets explicitly.
+    pool_client.allow_token(&token1_id);
+    pool_client.allow_token(&token2_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1278,6 +1481,9 @@ fn test_set_max_pool_size_unauthorized() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
 
     env.mock_auths(&[soroban_sdk::testutils::MockAuth {
         address: &user,
@@ -1344,6 +1550,9 @@ fn test_withdrawal_with_utilization() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     pool_client.set_loan_manager(&Address::generate(&env));
 
@@ -1400,6 +1609,9 @@ fn test_utilization_is_derived_from_outstanding_not_from_principal_basis() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
     pool_client.set_loan_manager(&Address::generate(&env));
 
@@ -1442,6 +1654,9 @@ fn test_deposit_at_max_cap_edge_cases() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_max_pool_size(&token_id, &1000);
 
     let provider = Address::generate(&env);
@@ -1523,6 +1738,9 @@ fn test_deposit_event_emission() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1563,6 +1781,9 @@ fn test_share_price_is_one_to_one_before_any_yield() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1592,6 +1813,9 @@ fn test_share_price_rises_proportionally_with_yield() {
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let provider = Address::generate(&env);
@@ -1626,6 +1850,9 @@ fn test_multiple_depositors_share_yield_proportionally_and_total_shares_track_co
     let pool_id = env.register(LendingPool, ());
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
+    // Deposits are refused for unregistered tokens, so this fixture must open its
+    // market explicitly before the pool will accept it.
+    pool_client.allow_token(&token_id);
     pool_client.set_withdrawal_cooldown(&0);
 
     let p1 = Address::generate(&env);

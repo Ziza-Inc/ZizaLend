@@ -58,6 +58,8 @@ fuzz_target!(|data: FuzzAction| {
     // 3. Initialize LendingPool with Token
     let pool_admin = Address::generate(&env);
     pool_client.initialize(&pool_admin);
+    // Deposits are refused for unregistered tokens.
+    pool_client.allow_token(&token_id);
 
     match data {
         FuzzAction::Deposit { user_id, amount } => {

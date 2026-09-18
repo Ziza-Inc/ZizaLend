@@ -5,7 +5,7 @@ A share-based (LP token) liquidity pool serving multiple token markets from a si
 ## Architecture
 
 - **Share-based accounting**: Every deposit mints LP shares at the current exchange rate. Yield is implicit in the share price — no separate `claim` step required.
-- **Multi-token support**: One contract instance manages independent pools for different token addresses.
+- **Multi-token support**: One contract instance manages independent pools for different token addresses, but only for tokens the admin has registered with `allow_token`. A deposit is what creates a market, so the set of served assets is an admin decision, not a caller's.
 - **Withdrawal cooldown**: Configurable per-token delay (in ledgers) between deposit and withdrawal.
 - **Minimum hold time**: 1-ledger minimum prevents flash-loan-style deposit/withdraw cycles in the same transaction.
 - **Donation-resistant share pricing**: Every share/asset conversion credits a virtual share and a virtual asset (the ERC-4626 offset), so tokens sent directly to the pool cannot be used to inflate the share price and round a later depositor out of their deposit.
@@ -24,6 +24,8 @@ A share-based (LP token) liquidity pool serving multiple token markets from a si
 7. Withdrawals can only reduce the idle balance — `total_outstanding` is only modified by `adjust_outstanding`.
 
 Up to one unit of the asset is not attributable to any holder: the virtual position in the offset can never be redeemed. It stays in the pool and improves solvency rather than enriching anyone.
+
+8. Only an admin-registered token can be deposited (`TokenNotAllowed` otherwise). Delisting a token (`disallow_token`) stops new deposits but leaves existing positions withdrawable, so an asset can never be delisted into a state where lenders cannot exit.
 
 ## Public Functions
 
@@ -52,6 +54,9 @@ Up to one unit of the asset is not attributable to any holder: the virtual posit
 | `get_pool_stats(token)`                        | PoolStats struct with utilisation        |
 | `get_total_deposits(token)`                    | Total tracked principal                  |
 | `get_total_shares(token)`                      | Total LP shares outstanding              |
+| `allow_token(token)`                           | Admin: register a market (required before any deposit) |
+| `disallow_token(token)`                        | Admin: stop new deposits; positions stay withdrawable |
+| `is_token_allowed(token)`                      | Whether a token has been registered       |
 | `get_depositor_count(token)`                   | Unique depositor count                   |
 | `get_accumulated_dust()`                       | Current rounding dust balance            |
 | `get_max_pool_size(token)`                     | Deposit cap                              |
