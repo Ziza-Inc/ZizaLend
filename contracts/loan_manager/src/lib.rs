@@ -345,6 +345,28 @@ impl LoanManager {
             .expect("principal paid exceeds amount")
     }
 
+    /// The term, in ledgers, that this loan's interest and late-fee rates are
+    /// quoted per.
+    ///
+    /// Both rates are *per-term* rates, so the accrual denominator has to be the
+    /// term this particular loan was written on. Accrual previously divided by the
+    /// compile-time `DEFAULT_TERM_LEDGERS` constant regardless of the loan's own
+    /// term, which decoupled the rate the borrower agreed to from the rate they were
+    /// charged: a loan written on a term twice the constant accrued interest at
+    /// twice the agreed rate (and late fees likewise), while one written on a
+    /// shorter term under-charged. The due date came from `loan.term_ledgers` while
+    /// the charge came from the constant, so the two could not stay in step.
+    ///
+    /// `term_ledgers` is validated as non-zero at request and set at approval, so
+    /// this invariant holds for every loan that can accrue.
+    fn loan_term_ledgers(loan: &Loan) -> i128 {
+        assert!(
+            loan.term_ledgers > 0,
+            "loan term must be set before accrual"
+        );
+        loan.term_ledgers as i128
+    }
+
     fn accrue_interest(env: &Env, loan: &mut Loan) -> Result<(), LoanError> {
         if loan.status != LoanStatus::Approved {
             return Ok(());
@@ -372,7 +394,7 @@ impl LoanManager {
             .ok_or(LoanError::AmountTooLarge)?;
 
         let denominator = 10_000i128
-            .checked_mul(Self::DEFAULT_TERM_LEDGERS as i128)
+            .checked_mul(Self::loan_term_ledgers(loan))
             .ok_or(LoanError::AmountTooLarge)?;
 
         let total_interest = numerator / denominator;
@@ -602,6 +624,9 @@ impl LoanManager {
         }
 
         let overdue_ledgers = current_ledger - late_fee_start;
+        // The late-fee rate is quoted per term, so it deflates over the same term the
+        // loan was written on -- reading the same field interest accrual uses.
+        let term_ledgers = Self::loan_term_ledgers(loan);
         // Late fee is calculated on original principal amount only, not remaining debt.
         // This ensures the 25% late fee cap is meaningful regardless of payment state.
         let incremental_fee = loan
@@ -609,7 +634,7 @@ impl LoanManager {
             .checked_mul(Self::late_fee_rate_bps(env) as i128)
             .and_then(|value| value.checked_mul(overdue_ledgers as i128))
             .and_then(|value| value.checked_div(10_000))
-            .and_then(|value| value.checked_div(Self::DEFAULT_TERM_LEDGERS as i128))
+            .and_then(|value| value.checked_div(term_ledgers))
             .expect("late fee overflow");
 
         // Global debt cap: Total outstanding (principal + interest + late fees)

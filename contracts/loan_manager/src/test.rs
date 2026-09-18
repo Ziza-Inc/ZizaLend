@@ -1425,6 +1425,105 @@ fn test_overdue_repayment_charges_late_fee() {
     assert_eq!(token_client.balance(&pool_client), 9_300);
 }
 
+/// Interest is quoted as a *per-term* rate, so it must accrue against the term the
+/// loan was actually written on.
+///
+/// The bug this pins: `accrue_interest` divided by the compile-time
+/// `DEFAULT_TERM_LEDGERS` constant regardless of the loan's own term, so a loan
+/// written on a term twice the constant was charged double the agreed rate. No test
+/// caught it because every existing test requested `17_280` -- the same value as the
+/// constant -- so the two definitions of "term" never diverged.
+#[test]
+fn test_interest_accrues_over_the_loans_own_term_not_a_global_default() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _token_admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+
+    // A term deliberately twice the compile-time default.
+    const LONG_TERM: u32 = 2 * 17_280;
+    manager.set_default_term(&LONG_TERM);
+    manager.set_grace_period_ledgers(&0);
+
+    env.ledger().set_sequence_number(1);
+    let principal: i128 = 1_000;
+    let loan_id = manager.request_loan(&borrower, &principal, &LONG_TERM);
+    manager.approve_loan(&loan_id);
+
+    let rate_bps = manager.get_loan(&loan_id).interest_rate_bps;
+    assert_eq!(manager.get_loan(&loan_id).term_ledgers, LONG_TERM);
+
+    // Advance by exactly one full term: exactly one term's interest is due.
+    env.ledger().set_sequence_number(1 + LONG_TERM);
+
+    let expected_interest = (principal * rate_bps as i128) / 10_000;
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(
+        loan.accrued_interest, expected_interest,
+        "one full term must accrue exactly the quoted per-term rate; dividing by the \
+         compile-time default term instead charges double"
+    );
+    assert_eq!(loan.accrued_late_fee, 0, "the loan is not yet overdue");
+}
+
+/// The late-fee rate is quoted per term as well, so it must deflate over the same
+/// term the loan was written on rather than the compile-time default.
+#[test]
+fn test_late_fee_accrues_over_the_loans_own_term_not_a_global_default() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _token_admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+
+    const LONG_TERM: u32 = 2 * 17_280;
+    manager.set_default_term(&LONG_TERM);
+    manager.set_late_fee_rate(&500);
+    manager.set_grace_period_ledgers(&0);
+
+    env.ledger().set_sequence_number(1);
+    let principal: i128 = 1_000;
+    let loan_id = manager.request_loan(&borrower, &principal, &LONG_TERM);
+    manager.approve_loan(&loan_id);
+
+    // One full term past the due date, so the fee is exactly one overdue term at the
+    // quoted 500 bps.
+    let due_date = manager.get_loan(&loan_id).due_date;
+    env.ledger().set_sequence_number(due_date + LONG_TERM);
+
+    let expected_late_fee = (principal * 500) / 10_000;
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(
+        loan.accrued_late_fee, expected_late_fee,
+        "one overdue term must charge exactly the quoted per-term late fee"
+    );
+}
+
 #[test]
 fn test_overdue_partial_repayment_still_reduces_principal() {
     let env = Env::default();
