@@ -152,6 +152,18 @@ app.use(requestIdMiddleware);
 app.use(requestLogger);
 app.use(metricsMiddleware);
 
+// ── Cache-Control ────────────────────────────────────────────────
+// API responses are per-user and often reflect a just-submitted transaction.
+// Without `no-store`, browsers and any intermediary cache may retain them,
+// so a user can be served a stale pre-mutation payload (or, on a shared
+// cache, another caller's response). Health/metrics/docs stay cacheable.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/api' || req.path.startsWith('/api/') || req.path.startsWith('/user/')) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
+  next();
+});
+
 // Trailing slash normalization: strip trailing slashes from all paths
 // except the root, so /api/loans/ behaves identically to /api/loans.
 // This prevents duplicate cache entries and confusing 404 responses.
