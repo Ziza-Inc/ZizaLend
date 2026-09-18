@@ -2313,7 +2313,16 @@ fn test_extend_loan_accepts_extension_equal_to_max_term() {
     stellar_token.mint(&pool_client, &10_000);
     stellar_token.mint(&borrower, &50_000);
 
-    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    // Configure the window explicitly and exercise the boundary against that
+    // configured value. The test previously borrowed `get_max_term_ledgers()` while
+    // it fell back to `DEFAULT_TERM_LEDGERS`, which merely happened to equal the
+    // extension bound; the accessor now reports the honest unset window, so the test
+    // states the bound it is testing instead of relying on two defaults agreeing.
+    const CONFIGURED_MAX: u32 = 17_280;
+    manager.set_max_term_ledgers(&CONFIGURED_MAX);
+    assert_eq!(manager.get_max_term_ledgers(), CONFIGURED_MAX);
+
+    let loan_id = manager.request_loan(&borrower, &1000, &CONFIGURED_MAX);
     manager.approve_loan(&loan_id);
 
     let original_due_date = manager.get_loan(&loan_id).due_date;
@@ -2327,6 +2336,113 @@ fn test_extend_loan_accepts_extension_equal_to_max_term() {
         loan.due_date,
         original_due_date + manager.get_max_term_ledgers()
     );
+}
+
+/// `approve_loan` must honour the term the borrower requested rather than
+/// substituting the global default.
+///
+/// The bug this pins: approval overwrote `loan.term_ledgers` with
+/// `read_default_term()`. The loan wizard offers 30/60/90-day terms and shows the
+/// chosen term back to the borrower before they sign, so a borrower could sign a
+/// 30-day request and be approved into a one-term loan -- at a different rate than
+/// the one they were shown, because interest is quoted per term.
+#[test]
+fn test_approve_loan_honours_the_requested_term() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &1_000_000);
+
+    // The protocol default stays at one term; the borrower asks for 30 days.
+    const REQUESTED_TERM: u32 = 30 * 17_280;
+    assert_eq!(manager.get_default_term(), 17_280);
+
+    env.ledger().set_sequence_number(1_000);
+    let loan_id = manager.request_loan(&borrower, &1_000, &REQUESTED_TERM);
+    manager.approve_loan(&loan_id);
+
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(
+        loan.term_ledgers, REQUESTED_TERM,
+        "approval must not rewrite the requested term"
+    );
+    assert_eq!(
+        loan.due_date,
+        1_000 + REQUESTED_TERM,
+        "the due date must derive from the requested term, not the global default"
+    );
+}
+
+/// A requested term outside the configured window must be rejected at request time.
+/// Approval honours the requested term, so an out-of-window request would otherwise
+/// become an out-of-window loan.
+#[test]
+fn test_request_loan_rejects_a_term_outside_the_configured_window() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &1_000_000);
+
+    manager.set_min_term_ledgers(&17_280);
+    manager.set_max_term_ledgers(&51_840);
+
+    assert_eq!(
+        manager.try_request_loan(&borrower, &1_000, &17_279),
+        Err(Ok(LoanError::InvalidTerm)),
+        "a term below the configured minimum must be refused"
+    );
+    assert_eq!(
+        manager.try_request_loan(&borrower, &1_000, &51_841),
+        Err(Ok(LoanError::InvalidTerm)),
+        "a term above the configured maximum must be refused"
+    );
+
+    // The window is inclusive at both ends.
+    assert!(manager.try_request_loan(&borrower, &1_000, &17_280).is_ok());
+    assert!(manager.try_request_loan(&borrower, &1_000, &51_840).is_ok());
+}
+
+/// The advertised term window must be the enforced one. An unset window means no
+/// window, which is what `request_loan` enforces and what the setters already assume.
+#[test]
+fn test_term_window_getters_match_the_enforced_defaults() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, _nft_client, _pool, _token, _admin) = setup_test(&env);
+
+    assert_eq!(manager.get_min_term_ledgers(), 0);
+    assert_eq!(manager.get_max_term_ledgers(), u32::MAX);
+
+    manager.set_min_term_ledgers(&17_280);
+    manager.set_max_term_ledgers(&51_840);
+    assert_eq!(manager.get_min_term_ledgers(), 17_280);
+    assert_eq!(manager.get_max_term_ledgers(), 51_840);
 }
 
 #[test]

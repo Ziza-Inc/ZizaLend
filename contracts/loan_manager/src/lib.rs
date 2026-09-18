@@ -304,6 +304,30 @@ impl LoanManager {
             .unwrap_or(Self::DEFAULT_TERM_LEDGERS)
     }
 
+    /// Lower bound of the permitted loan-term window, in ledgers.
+    ///
+    /// Defaults to `0` (no floor) and `u32::MAX` (no ceiling) respectively, which is
+    /// what `set_term_limits` and the individual setters already assume when they
+    /// validate a partial update. The `get_*_term_ledgers` accessors previously
+    /// reported `DEFAULT_TERM_LEDGERS` for an unset window, so the value the contract
+    /// advertised disagreed with the value it enforced.
+    fn min_term_ledgers(env: &Env) -> u32 {
+        Self::bump_instance_ttl(env);
+        env.storage()
+            .instance()
+            .get(&DataKey::MinTermLedgers)
+            .unwrap_or(0)
+    }
+
+    /// Upper bound of the permitted loan-term window, in ledgers.
+    fn max_term_ledgers(env: &Env) -> u32 {
+        Self::bump_instance_ttl(env);
+        env.storage()
+            .instance()
+            .get(&DataKey::MaxTermLedgers)
+            .unwrap_or(u32::MAX)
+    }
+
     fn require_not_paused(env: &Env) -> Result<(), LoanError> {
         Self::bump_instance_ttl(env);
         let paused: bool = env
@@ -1024,7 +1048,8 @@ impl LoanManager {
     /// Returns [`LoanError::ContractPaused`], [`LoanError::PoolPaused`], or
     /// [`LoanError::NftPaused`] when pause checks fail; [`LoanError::InvalidAmount`]
     /// for non-positive amounts or amounts over the configured maximum;
-    /// [`LoanError::InvalidTerm`] for a zero term; [`LoanError::NotInitialized`]
+    /// [`LoanError::InvalidTerm`] for a zero term or one outside the configured
+    /// window; [`LoanError::NotInitialized`]
     /// when the NFT contract is missing; [`LoanError::InsufficientScore`] when
     /// the borrower's NFT score is too low; [`LoanError::SeizedBorrower`] when
     /// the borrower is flagged as seized; and [`LoanError::MaxLoansReached`]
@@ -1047,7 +1072,13 @@ impl LoanManager {
             return Err(LoanError::InvalidAmount);
         }
 
+        // The requested term is the one the borrower signs for, and approval honours
+        // it, so it has to be validated here -- not merely checked for zero. A term
+        // outside the configured window would otherwise become a loan outside it.
         if term == 0 {
+            return Err(LoanError::InvalidTerm);
+        }
+        if term < Self::min_term_ledgers(&env) || term > Self::max_term_ledgers(&env) {
             return Err(LoanError::InvalidTerm);
         }
 
@@ -1138,9 +1169,9 @@ impl LoanManager {
     ///
     /// Requires admin authorization and the loan manager, lending pool, and NFT
     /// contract to be unpaused. The target loan must be [`LoanStatus::Pending`];
-    /// approval records the default term, due date, interest/late-fee ledgers,
-    /// and total outstanding balance before transferring funds from the lending
-    /// pool to the borrower.
+    /// approval records the term the borrower requested, the due date derived from
+    /// it, the interest/late-fee ledgers, and the total outstanding balance before
+    /// transferring funds from the lending pool to the borrower.
     ///
     /// Returns [`LoanError::ContractPaused`], [`LoanError::PoolPaused`], or
     /// [`LoanError::NftPaused`] when pause checks fail; [`LoanError::LoanNotFound`]
@@ -1176,7 +1207,6 @@ impl LoanManager {
             .instance()
             .get(&DataKey::Token)
             .expect("token not set");
-        let term_ledgers = Self::read_default_term(&env);
 
         // Cross-contract READ for liquidity check — still in the CHECKS phase.
         //
@@ -1195,9 +1225,25 @@ impl LoanManager {
         let borrower = loan.borrower.clone();
         let transfer_amount = loan.amount;
 
+        // Honour the term the borrower requested and signed for. This previously
+        // overwrote `loan.term_ledgers` with the mutable global default, silently
+        // substituting a different loan than the one requested: the wizard offers
+        // 30/60/90-day terms and shows that term back to the borrower before they
+        // sign, while approval forced the default (one term) instead. Because
+        // interest and late fees are quoted per term, the substitution also repriced
+        // the loan away from the rate shown at request time.
+        if loan.term_ledgers == 0 {
+            // Defensive: `request_loan` rejects a zero term, so this is unreachable
+            // for any loan created through the normal path. A zero here would make
+            // the loan instantly overdue.
+            return Err(LoanError::InvalidTerm);
+        }
         loan.status = LoanStatus::Approved;
-        loan.term_ledgers = term_ledgers;
-        loan.due_date = env.ledger().sequence() + term_ledgers;
+        loan.due_date = env
+            .ledger()
+            .sequence()
+            .checked_add(loan.term_ledgers)
+            .expect("due date overflow");
         loan.last_interest_ledger = env.ledger().sequence();
         loan.last_late_fee_ledger = loan
             .due_date
@@ -2431,11 +2477,7 @@ impl LoanManager {
     }
 
     pub fn get_min_term_ledgers(env: Env) -> u32 {
-        Self::bump_instance_ttl(&env);
-        env.storage()
-            .instance()
-            .get(&DataKey::MinTermLedgers)
-            .unwrap_or(Self::DEFAULT_TERM_LEDGERS)
+        Self::min_term_ledgers(&env)
     }
 
     pub fn set_max_term_ledgers(env: Env, max_term: u32) -> Result<(), LoanError> {
@@ -2461,11 +2503,7 @@ impl LoanManager {
     }
 
     pub fn get_max_term_ledgers(env: Env) -> u32 {
-        Self::bump_instance_ttl(&env);
-        env.storage()
-            .instance()
-            .get(&DataKey::MaxTermLedgers)
-            .unwrap_or(Self::DEFAULT_TERM_LEDGERS)
+        Self::max_term_ledgers(&env)
     }
 
     pub fn propose_admin(env: Env, new_admin: Address) {
