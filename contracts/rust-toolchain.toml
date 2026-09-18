@@ -1,4 +1,24 @@
 [toolchain]
 channel = "1.85.0"
-targets = ["wasm32-unknown-unknown"]
+# `wasm32v1-none`, not `wasm32-unknown-unknown`.
+#
+# From Rust 1.82 the general wasm target enables the `reference-types` and
+# `multivalue` WebAssembly proposals by default. The Soroban host implements only the
+# MVP plus sign-extension, and rejects such modules during translation — before any
+# function runs. The rejection message names neither the contract nor the function:
+#
+#   HostError: Error(WasmVm, InvalidAction)
+#     Module(Translation(TranslationError { inner: Validate(BinaryReaderError {
+#       message: "reference-types not enabled: zero byte expected", offset: 33504 })}))
+#
+# Because translation happens on `uploadContractWasm`, the very first transaction of a
+# deployment, this defect was invisible to `cargo test`, to Clippy, and to the WASM
+# size budget: the workspace built cleanly and still could not be deployed to any
+# Stellar network.
+#
+# `wasm32v1-none` is the WebAssembly 1.0 (MVP) profile, so the restriction is enforced
+# by the target rather than by advisory `-C target-feature=-reference-types` flags,
+# which do not in fact suppress this codegen. It also emits slightly smaller artifacts
+# (~32-110 bytes per contract here).
+targets = ["wasm32v1-none"]
 components = ["rustfmt", "clippy"]

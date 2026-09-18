@@ -125,7 +125,7 @@ kill -9 <PID>
 
 **Fix:**
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 ```
 
 ### Contract deployment fails with `Contract not found`

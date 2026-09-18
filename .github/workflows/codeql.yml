@@ -42,12 +42,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Build Soroban contracts workspace
         if: matrix.language == 'rust'
         working-directory: contracts
-        run: cargo build --workspace --target wasm32-unknown-unknown --exclude zizalend-integration-tests
+        run: cargo build --workspace --target wasm32v1-none --exclude zizalend-integration-tests
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

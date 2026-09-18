@@ -11,12 +11,12 @@ Central guide for setting up and developing across all ZizaLend components.
 | Docker | ≥ 24 | `docker --version` |
 | Docker Compose | ≥ 2 | `docker compose version` |
 | Rust | stable (1.75+) | `rustc --version` |
-| WASM target | wasm32-unknown-unknown | `rustup target list --installed` |
+| WASM target | wasm32v1-none | `rustup target list --installed` |
 
 ### Install WASM Target
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 ```
 
 ## Quick Start (Docker)
@@ -90,7 +90,7 @@ npm run dev
 cd contracts
 
 # Build WASM binaries
-cargo build --workspace --target wasm32-unknown-unknown --release
+cargo build --workspace --target wasm32v1-none --release
 
 # Run tests
 cargo test -- --test-threads=1

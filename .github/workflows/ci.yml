@@ -388,7 +388,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.85.0
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: rustfmt, clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -409,12 +409,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          cargo build --workspace --target wasm32-unknown-unknown --release --exclude zizalend-integration-tests
+          cargo build --workspace --target wasm32v1-none --release --exclude zizalend-integration-tests
 
           # Generous initial budget: 256 KiB per contract. Tighten after baseline optimization.
           max_bytes=$((256 * 1024))
           shopt -s nullglob
-          wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+          wasm_files=(target/wasm32v1-none/release/*.wasm)
 
           if [ "${#wasm_files[@]}" -eq 0 ]; then
             echo "::error::No wasm artifacts were produced."
@@ -436,7 +436,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: contracts-wasm
-          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          path: contracts/target/wasm32v1-none/release/*.wasm
           if-no-files-found: error
       - name: Install tarpaulin
         uses: taiki-e/install-action@v2

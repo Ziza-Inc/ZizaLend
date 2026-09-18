@@ -14,7 +14,7 @@ ZizaLend uses three core smart contracts:
 
 - [Rust Toolchain](https://www.rust-lang.org/tools/install) (latest stable)
 - [Soroban CLI](https://soroban.stellar.org/docs/getting-started/setup)
-- [wasm32-unknown-unknown target](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html)
+- [wasm32v1-none target](https://doc.rust-lang.org/rustc/platform-support/wasm32v1-none.html)
 
 ### Installation
 
@@ -23,7 +23,7 @@ ZizaLend uses three core smart contracts:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Add wasm32 target
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 
 # Install Soroban CLI
 cargo install --locked soroban-cli
@@ -58,24 +58,43 @@ contracts/
 
 ## Building Contracts
 
+> **Use `wasm32v1-none`, not `wasm32-unknown-unknown`.**
+>
+> From Rust 1.82 the general Wasm target emits the `reference-types` and `multivalue`
+> proposals by default. The Soroban host implements only WebAssembly 1.0 (MVP) plus
+> sign-extension, and rejects such a module while translating it — that is, during
+> `uploadContractWasm`, before anything executes:
+>
+> ```
+> HostError: Error(WasmVm, InvalidAction)
+>   Module(Translation(TranslationError { inner: Validate(BinaryReaderError {
+>     message: "reference-types not enabled: zero byte expected" })}))
+> ```
+>
+> `wasm32v1-none` is the MVP profile, so the constraint is enforced by the target
+> itself instead of by advisory `-C target-feature=-reference-types` flags (which do
+> **not** actually suppress this codegen). The target is declared in
+> [`rust-toolchain.toml`](./rust-toolchain.toml), so a plain `cargo build` inside this
+> workspace already uses it where the toolchain supports per-directory overrides.
+
 ### Build All Contracts
 
 ```bash
 # From contracts directory
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 ```
 
 ### Build Specific Contract
 
 ```bash
 # Build only NFT contract
-cargo build -p remittance_nft --target wasm32-unknown-unknown --release
+cargo build -p remittance_nft --target wasm32v1-none --release
 
 # Build only Loan Manager
-cargo build -p loan_manager --target wasm32-unknown-unknown --release
+cargo build -p loan_manager --target wasm32v1-none --release
 
 # Build only Lending Pool
-cargo build -p lending_pool --target wasm32-unknown-unknown --release
+cargo build -p lending_pool --target wasm32v1-none --release
 ```
 
 ### Build Output
@@ -83,7 +102,7 @@ cargo build -p lending_pool --target wasm32-unknown-unknown --release
 Compiled WASM files are located at:
 
 ```
-target/wasm32-unknown-unknown/release/
+target/wasm32v1-none/release/
 ├── remittance_nft.wasm
 ├── loan_manager.wasm
 └── lending_pool.wasm
@@ -291,7 +310,7 @@ soroban keys generate --global alice --network testnet
 
 # Deploy NFT contract
 soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/remittance_nft.wasm \
+  --wasm target/wasm32v1-none/release/remittance_nft.wasm \
   --source alice \
   --rpc-url https://soroban-testnet.stellar.org \
   --network-passphrase "Test SDF Network ; September 2015"
@@ -440,12 +459,12 @@ Soroban contracts can be upgraded using the upgrade mechanism:
 
 ```bash
 # Build new version
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Upgrade contract
 soroban contract upgrade \
   --id $CONTRACT_ID \
-  --wasm target/wasm32-unknown-unknown/release/contract.wasm \
+  --wasm target/wasm32v1-none/release/contract.wasm \
   --source admin
 ```
 
@@ -468,7 +487,7 @@ cargo clean
 cargo update
 
 # Rebuild
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 ```
 
 ### Test Failures
@@ -511,7 +530,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines.
 cargo fmt
 cargo clippy
 cargo test
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 ```
 
 ## License

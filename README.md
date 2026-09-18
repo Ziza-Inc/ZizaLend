@@ -279,7 +279,7 @@ Four Soroban (Rust) smart contracts power the protocol:
 ```bash
 node -v        # Node ≥ 22 required (CI runs on Node 22)
 docker --version
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32v1-none
 ```
 
 ### Docker (Recommended)
@@ -350,7 +350,7 @@ npm run dev
 
 ```bash
 cd contracts
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 cargo test
 
 # Fuzz testing
