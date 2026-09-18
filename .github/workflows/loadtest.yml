@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run k6 baseline load test
-        uses: grafana/k6-action@v0.3.0
+        uses: grafana/k6-action@v0.3.1
         with:
           filename: scripts/loadtest/baseline.js
         env:
