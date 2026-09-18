@@ -32,6 +32,23 @@ import { asyncHandler } from './utils/asyncHandler.js';
 import { AppError } from './errors/AppError.js';
 const app = express();
 
+// ── Trust proxy ──────────────────────────────────────────────────
+// When the API runs behind a reverse proxy / load balancer, Express must be
+// told how many hops to trust. Without this, `req.ip` is the proxy address, so
+// every caller shares one rate-limit bucket, access logs lose the real client
+// IP, and audit records become useless. Configuration is explicit rather than
+// defaulting to "trust everything", because trusting `X-Forwarded-For` blindly
+// lets clients spoof their IP and bypass per-IP rate limiting.
+//
+//   TRUST_PROXY=1        -> trust the first hop (typical single proxy / ALB)
+//   TRUST_PROXY=loopback -> trust loopback addresses (same-host proxy)
+//   unset/false          -> do not trust any forwarding header (default)
+const trustProxySetting = process.env.TRUST_PROXY?.trim();
+if (trustProxySetting && trustProxySetting.toLowerCase() !== 'false') {
+  const trustProxyHops = Number(trustProxySetting);
+  app.set('trust proxy', Number.isInteger(trustProxyHops) ? trustProxyHops : trustProxySetting);
+}
+
 const isProduction = process.env.NODE_ENV === 'production';
 const configuredFrontendUrl = process.env.FRONTEND_URL?.trim();
 
