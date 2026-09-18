@@ -424,32 +424,14 @@ jobs:
         run: cargo test -- --test-threads=1
         working-directory: contracts
       - name: Build WASM contracts
-        run: |
-          set -euo pipefail
-
-          cargo build --workspace --target wasm32v1-none --release --exclude zizalend-integration-tests
-
-          # Generous initial budget: 256 KiB per contract. Tighten after baseline optimization.
-          max_bytes=$((256 * 1024))
-          shopt -s nullglob
-          wasm_files=(target/wasm32v1-none/release/*.wasm)
-
-          if [ "${#wasm_files[@]}" -eq 0 ]; then
-            echo "::error::No wasm artifacts were produced."
-            exit 1
-          fi
-
-          for wasm in "${wasm_files[@]}"; do
-            size_bytes=$(stat -c%s "$wasm")
-            size_kib=$(( (size_bytes + 1023) / 1024 ))
-            echo "$(basename "$wasm"): ${size_bytes} bytes (${size_kib} KiB), budget ${max_bytes} bytes"
-
-            if [ "$size_bytes" -gt "$max_bytes" ]; then
-              echo "::error file=$wasm::WASM artifact exceeds the 256 KiB per-contract budget."
-              exit 1
-            fi
-          done
+        run: cargo build --workspace --target wasm32v1-none --release --exclude zizalend-integration-tests
         working-directory: contracts
+
+      # Per-contract budgets, with the reasoning for each recorded beside it. This replaced a
+      # flat 256 KiB placeholder that every contract cleared with ~60% to spare, so it could not
+      # fail and therefore enforced nothing.
+      - name: Check WASM size budgets
+        run: node scripts/check-wasm-size.mjs
       - name: Upload wasm artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -460,9 +442,21 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-tarpaulin
+      # `--fail-under 75` is what makes this a check rather than a report. Coverage was already
+      # being measured and uploaded as an artifact, which means nothing could ever fail because
+      # of it — a number nobody is held to is a number that drifts. Measured with the same tool
+      # and the same invocation used here, so the threshold is one the suite actually clears
+      # rather than a target chosen to look ambitious.
       - name: Run coverage
-        run: cargo tarpaulin --out Xml
+        run: cargo tarpaulin --out Xml --fail-under 75
         working-directory: contracts
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        continue-on-error: true
+        with:
+          files: contracts/cobertura.xml
+          flags: contracts
+          fail_ci_if_error: false
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
