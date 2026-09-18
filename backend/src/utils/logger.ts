@@ -62,13 +62,63 @@ const withRequestId = winston.format((info) => {
   return info;
 });
 
+/**
+ * Keys whose values must never be written to logs.
+ *
+ * Auth tokens, API keys, wallet secrets, and raw signatures routinely travel
+ * through request/response objects; a stray `logger.info('...', req)` would
+ * otherwise persist a live credential in plain text to whatever log sink the
+ * deployment ships to.
+ */
+const SENSITIVE_KEY_PATTERN =
+  /(password|passwd|secret|token|authorization|cookie|api[-_]?key|apikey|private[-_]?key|mnemonic|seed[-_]?phrase|signature|signedtx)/i;
+
+const REDACTED = '[REDACTED]';
+const MAX_REDACT_DEPTH = 6;
+const LOG_META_RESERVED_KEYS = new Set(['level', 'message', 'timestamp', 'stack', 'splat']);
+
+function redactValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (depth > MAX_REDACT_DEPTH) return '[Truncated]';
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value as object)) return '[Circular]';
+
+  seen.add(value as object);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item, depth + 1, seen));
+  }
+
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    result[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redactValue(nested, depth + 1, seen);
+  }
+  return result;
+}
+
+/** Strips credentials from every non-reserved metadata field on a log record. */
+export const withRedaction = winston.format((info) => {
+  for (const key of Object.keys(info)) {
+    if (LOG_META_RESERVED_KEYS.has(key)) continue;
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      info[key] = REDACTED;
+      continue;
+    }
+    info[key] = redactValue(info[key], 0, new WeakSet());
+  }
+  return info;
+});
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 const transports: winston.transport[] = [
   new winston.transports.Console({
     format: isProduction
-      ? winston.format.combine(withRequestId(), productionFormat)
-      : winston.format.combine(withRequestId(), devFormat),
+      ? winston.format.combine(withRequestId(), withRedaction(), productionFormat)
+      : winston.format.combine(withRequestId(), withRedaction(), devFormat),
   }),
 ];
 
