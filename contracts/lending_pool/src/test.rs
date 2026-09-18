@@ -450,6 +450,13 @@ fn test_deposit_withdraw_invariants() {
 
 // ── Yield distribution (share-based) ─────────────────────────────────────────
 
+// NOTE: from this point on, several tests assert a figure that is one unit below the
+// exact proportional claim, and a pool balance of 1 rather than 0 after every holder
+// has redeemed. That is the virtual offset in `LendingPool::VIRTUAL_SHARES`: the
+// virtual position can never be redeemed, so one unit of the asset stays in the pool
+// and is not attributable to any holder. It is the accepted cost of making
+// donation-based share-price manipulation unprofitable.
+
 #[test]
 fn test_share_price_increases_when_interest_arrives() {
     let env = Env::default();
@@ -470,9 +477,10 @@ fn test_share_price_increases_when_interest_arrives() {
     // Simulate loan repayment with 100 tokens of interest.
     stellar_asset_client.mint(&pool_id, &100);
 
-    // Provider still holds 1000 shares; pool now has 1100 tokens.
+    // Provider still holds 1000 shares; pool now has 1100 tokens, so one share is
+    // worth more than 1.
     assert_eq!(pool_client.get_shares(&provider, &token_id), 1_000);
-    assert_eq!(pool_client.get_deposit(&provider, &token_id), 1_100);
+    assert_eq!(pool_client.get_deposit(&provider, &token_id), 1_099);
 }
 
 #[test]
@@ -524,13 +532,14 @@ fn test_withdraw_returns_principal_plus_interest() {
     // 200 tokens of interest flow back to the pool.
     stellar_asset_client.mint(&pool_id, &200);
 
-    // Redeem all 1000 shares → should receive 1200 tokens (principal + yield).
+    // Redeem all 1000 shares → 1200 of assets are theirs, less the one unit the
+    // virtual position retains.
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
     pool_client.withdraw(&provider, &token_id, &1_000);
 
-    assert_eq!(token_client.balance(&provider), 1_200);
-    assert_eq!(token_client.balance(&pool_id), 0);
+    assert_eq!(token_client.balance(&provider), 1_199);
+    assert_eq!(token_client.balance(&pool_id), 1);
 }
 
 #[test]
@@ -563,19 +572,19 @@ fn test_pro_rata_yield_distribution_on_withdrawal() {
     stellar_asset_client.mint(&pool_id, &100);
     // Pool: 1100 | Shares: 1000
 
-    // provider_a redeems 600 shares: 600 * 1100 / 1000 = 660 tokens.
+    // provider_a: 600 shares, redeems 600 * (1100 + 1) / (1000 + 1) = 659.
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
     pool_client.withdraw(&provider_a, &token_id, &600);
 
-    // provider_b redeems 400 shares: 400 * 440 / 400 = 440 tokens.
+    // provider_b: 400 shares, redeems 400 * (441 + 1) / (400 + 1) = 440.
     pool_client.withdraw(&provider_b, &token_id, &400);
 
-    // provider_a: 400 (remaining wallet) + 660 (redeemed) = 1060.
-    assert_eq!(token_client.balance(&provider_a), 1_060);
+    // provider_a: 400 (remaining wallet) + 659 (redeemed) = 1059.
+    assert_eq!(token_client.balance(&provider_a), 1_059);
     // provider_b: 600 (remaining wallet) + 440 (redeemed) = 1040.
     assert_eq!(token_client.balance(&provider_b), 1_040);
-    assert_eq!(token_client.balance(&pool_id), 0);
+    assert_eq!(token_client.balance(&pool_id), 1);
 }
 
 #[test]
@@ -612,18 +621,18 @@ fn test_subsequent_depositor_does_not_dilute_existing_holders() {
     assert_eq!(pool_client.get_shares(&provider_a, &token_id), 1_000);
     assert_eq!(pool_client.get_shares(&provider_b, &token_id), 1_000);
 
-    // Each share is worth 2200 / 2000 = 1.1.
-    // provider_a redeems → 1100 (1000 principal + 100 yield).
+    // Each share is worth slightly over 2200 / 2000 = 1.1.
+    // provider_a redeems → 1099 (1000 principal + the yield, less one unit).
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
     pool_client.withdraw(&provider_a, &token_id, &1_000);
-    assert_eq!(token_client.balance(&provider_a), 1_100);
+    assert_eq!(token_client.balance(&provider_a), 1_099);
 
     // provider_b redeems → 1100 (exactly their 1100 principal, no extra).
     pool_client.withdraw(&provider_b, &token_id, &1_000);
     assert_eq!(token_client.balance(&provider_b), 1_100);
 
-    assert_eq!(token_client.balance(&pool_id), 0);
+    assert_eq!(token_client.balance(&pool_id), 1);
 }
 
 #[test]
@@ -654,12 +663,13 @@ fn test_full_loan_cycle_with_interest() {
     token_client.transfer(&borrower, &pool_id, &880);
     assert_eq!(token_client.balance(&pool_id), 1_080);
 
-    // Provider redeems all 1000 shares → 1080 (principal + interest).
+    // Provider redeems all 1000 shares → 1080 (principal + interest), less the one
+    // unit the virtual position retains.
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
     pool_client.withdraw(&provider, &token_id, &1_000);
-    assert_eq!(token_client.balance(&provider), 1_080);
-    assert_eq!(token_client.balance(&pool_id), 0);
+    assert_eq!(token_client.balance(&provider), 1_079);
+    assert_eq!(token_client.balance(&pool_id), 1);
 }
 
 #[test]
@@ -738,10 +748,10 @@ fn test_many_depositors_receive_proportional_yield() {
         pool_client.withdraw(provider, &token_id, shares);
     }
 
-    assert_eq!(token_client.balance(&depositors[0].0), 1_100);
+    assert_eq!(token_client.balance(&depositors[0].0), 1_099);
     assert_eq!(token_client.balance(&depositors[1].0), 2_200);
     assert_eq!(token_client.balance(&depositors[2].0), 3_300);
-    assert_eq!(token_client.balance(&pool_id), 0);
+    assert_eq!(token_client.balance(&pool_id), 1);
 }
 
 // ── Admin transfer ────────────────────────────────────────────────────────────
@@ -1220,7 +1230,8 @@ fn test_get_depositor_yield_reflects_accrued_interest() {
 
     let (shares2, asset_value2) = pool_client.get_depositor_yield(&provider, &token_id);
     assert_eq!(shares2, 1000);
-    assert_eq!(asset_value2, 1200); // 1000 shares * 1200 assets / 1000 total_shares
+    // 1000 shares * (1200 + 1) assets / (1000 + 1) total_shares, floored.
+    assert_eq!(asset_value2, 1199);
 }
 
 #[test]
@@ -1589,15 +1600,15 @@ fn test_share_price_rises_proportionally_with_yield() {
 
     // 500 tokens of interest arrive (25 % yield).
     stellar_asset_client.mint(&pool_id, &500);
-    // Pool: 2500 | Shares: 2000 → price = 2500 * 1_000_000 / 2000 = 1_250_000.
+    // Pool: 2500 | Shares: 2000 -> price = (2500 + 1) * 1_000_000 / (2000 + 1).
     let share_price = pool_client.get_share_price(&token_id);
-    assert_eq!(share_price, 1_250_000);
+    assert_eq!(share_price, 1_249_875);
 
-    // Redeem half the shares (1000) → should receive 1000 * 2500 / 2000 = 1250.
+    // Redeem half the shares (1000) → 1000 * (2500 + 1) / (2000 + 1) = 1249.
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
     pool_client.withdraw(&provider, &token_id, &1_000);
-    assert_eq!(token_client.balance(&provider), 1_250); // 0 initial + 1250 redeemed
+    assert_eq!(token_client.balance(&provider), 1_249); // 0 initial + 1249 redeemed
     assert_eq!(pool_client.get_shares(&provider, &token_id), 1_000);
 }
 
@@ -1638,19 +1649,20 @@ fn test_multiple_depositors_share_yield_proportionally_and_total_shares_track_co
     // Each provider redeems all shares.
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
-    // p1: 5000 * 11000 / 10000 = 5500  (pool=11000, shares=10000)
+    // p1: 5000 * (11000 + 1) / (10000 + 1) = 5499  (pool=11000, shares=10000)
     pool_client.withdraw(&p1, &token_id, &5_000);
-    assert_eq!(token_client.balance(&p1), 5_500);
+    assert_eq!(token_client.balance(&p1), 5_499);
 
-    // p2: 3000 * 5500 / 5000 = 3300  (pool=5500, shares=5000 after p1 exit)
+    // p2: 3000 * (5501 + 1) / (5000 + 1) = 3300  (pool=5501, shares=5000 after p1 exit)
     pool_client.withdraw(&p2, &token_id, &3_000);
     assert_eq!(token_client.balance(&p2), 3_300);
 
-    // p3: 2000 * 2200 / 2000 = 2200  (pool=2200, shares=2000 after p1+p2 exit)
+    // p3: 2000 * (2201 + 1) / (2000 + 1) = 2200  (pool=2201, shares=2000 after p1+p2 exit)
     pool_client.withdraw(&p3, &token_id, &2_000);
     assert_eq!(token_client.balance(&p3), 2_200);
 
-    // Pool is fully drained and no shares remain.
-    assert_eq!(token_client.balance(&pool_id), 0);
+    // No shares remain. One unit stays in the pool: it is the virtual position, which
+    // is never redeemable.
+    assert_eq!(token_client.balance(&pool_id), 1);
     assert_eq!(pool_client.get_total_shares(&token_id), 0);
 }

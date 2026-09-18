@@ -8,7 +8,7 @@ A share-based (LP token) liquidity pool serving multiple token markets from a si
 - **Multi-token support**: One contract instance manages independent pools for different token addresses.
 - **Withdrawal cooldown**: Configurable per-token delay (in ledgers) between deposit and withdrawal.
 - **Minimum hold time**: 1-ledger minimum prevents flash-loan-style deposit/withdraw cycles in the same transaction.
-- **Dust collection**: Accumulated rounding truncations from share/asset conversions are tracked and reclaimable by the admin.
+- **Donation-resistant share pricing**: Every share/asset conversion credits a virtual share and a virtual asset (the ERC-4626 offset), so tokens sent directly to the pool cannot be used to inflate the share price and round a later depositor out of their deposit.
 - **Emergency pause**: Admin can pause deposits/withdrawals; `emergency_withdraw` bypasses both pause and cooldown.
 - **Admin governance**: Two-step admin transfer (`propose` + `accept`) and immediate `set_admin`.
 - **Upgradeable**: WASM-hash replacement with version tracking.
@@ -16,12 +16,14 @@ A share-based (LP token) liquidity pool serving multiple token markets from a si
 ## Key Invariants
 
 1. `total_pool_assets = idle_balance + total_outstanding`
-2. `shares × total_assets / total_shares` always equals the depositor's proportional claim (including yield).
+2. `shares × (total_assets + 1) / (total_shares + 1)` always equals the depositor's proportional claim (including yield).
 3. First depositor always receives a 1:1 share-to-asset allocation.
-4. Subsequent depositors cannot dilute existing holders.
+4. Subsequent depositors cannot dilute existing holders, and a balance donated directly to the pool cannot be redeemed back by whoever sent it.
 5. Share price is monotonic non-decreasing (yield can only increase it).
-6. `TotalDeposits` can never exceed `MaxPoolSize` when the cap is set.
+6. `TotalDeposits` can never exceed `MaxPoolSize` when the cap is set. `TotalDeposits` is a principal *cost basis*, not an asset value: a redemption reduces it by the pro-rata principal of the burned shares.
 7. Withdrawals can only reduce the idle balance — `total_outstanding` is only modified by `adjust_outstanding`.
+
+Up to one unit of the asset is not attributable to any holder: the virtual position in the offset can never be redeemed. It stays in the pool and improves solvency rather than enriching anyone.
 
 ## Public Functions
 

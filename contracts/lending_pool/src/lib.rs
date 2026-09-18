@@ -27,10 +27,13 @@
 //! ## Key Invariants
 //!
 //! 1. `total_pool_assets = idle_balance + total_outstanding`
-//! 2. `shares * total_assets / total_shares` always equals the depositor's
-//!    proportional claim (including accrued yield).
+//! 2. `shares * (total_assets + 1) / (total_shares + 1)` always equals the
+//!    depositor's proportional claim (including accrued yield). The virtual
+//!    offset is what makes the claim resistant to donation-based price
+//!    manipulation; see [`VIRTUAL_SHARES`](LendingPool::VIRTUAL_SHARES).
 //! 3. First depositor always receives a 1:1 share-to-asset allocation.
-//! 4. Subsequent depositors cannot dilute existing holders.
+//! 4. Subsequent depositors cannot dilute existing holders, and a donation made
+//!    directly to the pool cannot be redeemed back by its sender.
 //! 5. The share price is monotonic non-decreasing (yield can only increase it).
 //! 6. `TotalDeposits` can never exceed `MaxPoolSize` when the cap is set.
 //!    `TotalDeposits` is a principal *cost basis*, not an asset value: it excludes
@@ -267,36 +270,95 @@ impl LendingPool {
 
     // ── Share / asset math ────────────────────────────────────────────────
 
+    /// Virtual share and asset quantities credited to every LP share-pricing
+    /// computation.
+    ///
+    /// LP shares are priced from the pool's token balance, and anyone can send
+    /// tokens straight to the pool address. Without an offset that is the standard
+    /// first-depositor inflation attack: the attacker takes the smallest allowed
+    /// position, then donates tokens directly, which raises `total_assets` without
+    /// minting shares. A subsequent depositor's `floor(amount * shares / assets)`
+    /// then rounds down -- to zero, which reverts their deposit, or to a fraction of
+    /// what they paid, with the attacker redeeming at the inflated price and
+    /// collecting the difference.
+    ///
+    /// Crediting a virtual position to both sides of every conversion makes a
+    /// donation *shared* with that position instead of captured by the donor, so an
+    /// attacker can never redeem back the full amount they put in and the attack
+    /// costs more than it yields. This is the mitigation the ERC-4626 specification
+    /// recommends, with an offset of zero: one virtual share and one virtual asset.
+    ///
+    /// Two consequences are accepted deliberately. First, up to one share's worth of
+    /// value becomes permanently unattributable, since the virtual position can never
+    /// be redeemed; it stays in the pool and improves solvency rather than enriching
+    /// anyone, and for a healthy pool it is a single unit of the asset. Second, a
+    /// depositor into a pool whose price an attacker has inflated still loses
+    /// granularity to share indivisibility -- but no longer in a way that an attacker
+    /// can profit from, which removes the incentive entirely.
+    const VIRTUAL_SHARES: i128 = 1;
+    const VIRTUAL_ASSETS: i128 = 1;
+
     /// LP shares to mint for `amount` of deposited assets.
     ///
-    /// The first depositor always receives a 1-for-1 allocation.  Subsequent
-    /// depositors receive `amount * total_shares / total_assets_before` so
-    /// that the exchange rate is preserved and existing holders are not
-    /// diluted.  Total assets includes both idle balance and outstanding loans.
+    /// The first depositor always receives a 1-for-1 allocation, since a fresh pool
+    /// converts `amount * (0 + 1) / (0 + 1)`. Subsequent depositors receive
+    /// `amount * (total_shares + 1) / (total_assets_before + 1)` so that the exchange
+    /// rate is preserved, existing holders are not diluted, and a donated balance
+    /// cannot be captured by whoever donated it. Total assets includes both idle
+    /// balance and outstanding loans.
     fn calc_shares_to_mint(
         amount: i128,
         total_assets_before: i128,
         cur_total_shares: i128,
     ) -> i128 {
-        if cur_total_shares == 0 || total_assets_before == 0 {
-            amount
-        } else {
-            amount
-                .checked_mul(cur_total_shares)
-                .and_then(|v| v.checked_div(total_assets_before))
-                .expect("share mint overflow")
+        // A pool with no shares has no holder to dilute, so the first depositor takes a
+        // 1:1 position regardless of any balance already sitting in the pool. That
+        // balance belongs to nobody -- it was donated, or pre-funded at deployment --
+        // and pricing against it would let whoever sent it round the first real
+        // deposit's share count down to zero, which is the griefing half of the
+        // donation attack. Invariant 3 relies on this branch.
+        if cur_total_shares == 0 {
+            return amount;
         }
+
+        // A pool that still has shares but holds no assets is insolvent and has no
+        // meaningful share price. Pricing against a zero denominator would mint
+        // `amount * (shares + 1)` shares and dilute existing holders to nothing.
+        if total_assets_before == 0 {
+            return amount;
+        }
+
+        let virtual_total_shares = cur_total_shares
+            .checked_add(Self::VIRTUAL_SHARES)
+            .expect("virtual shares overflow");
+        let virtual_total_assets = total_assets_before
+            .checked_add(Self::VIRTUAL_ASSETS)
+            .expect("virtual assets overflow");
+
+        amount
+            .checked_mul(virtual_total_shares)
+            .and_then(|v| v.checked_div(virtual_total_assets))
+            .expect("share mint overflow")
     }
 
     /// Underlying assets redeemable for `shares` given current pool state.
     ///
-    /// Returns `shares * total_assets / total_shares`, which automatically
-    /// includes any yield that has accumulated since the shares were minted.
-    /// Total assets includes both idle balance and outstanding loans.
+    /// Returns `shares * (total_assets + 1) / (total_shares + 1)`, which automatically
+    /// includes any yield that has accumulated since the shares were minted and is
+    /// computed against the same virtual offset deposits use, so the two conversions
+    /// are exact inverses. Total assets includes both idle balance and outstanding
+    /// loans.
     fn calc_assets_to_redeem(shares: i128, total_assets: i128, cur_total_shares: i128) -> i128 {
+        let virtual_total_assets = total_assets
+            .checked_add(Self::VIRTUAL_ASSETS)
+            .expect("virtual assets overflow");
+        let virtual_total_shares = cur_total_shares
+            .checked_add(Self::VIRTUAL_SHARES)
+            .expect("virtual shares overflow");
+
         shares
-            .checked_mul(total_assets)
-            .and_then(|v| v.checked_div(cur_total_shares))
+            .checked_mul(virtual_total_assets)
+            .and_then(|v| v.checked_div(virtual_total_shares))
             .expect("share redeem overflow")
     }
 
@@ -756,15 +818,27 @@ impl LendingPool {
     /// Current LP share price scaled by `SHARE_PRICE_SCALE`.
     /// `1_000_000` means 1.0 underlying asset per share.
     /// Price includes proportional value of outstanding loans.
+    ///
+    /// Measured on the same virtual offset the deposit and redemption conversions
+    /// use, so the reported price is exactly the rate a depositor would transact at.
     pub fn get_share_price(env: Env, token: Address) -> i128 {
-        let total_shares = Self::total_shares(&env, &token);
-        if total_shares <= 0 {
+        // A pool with no shares reports parity, because that is the rate the next
+        // deposit actually transacts at: `calc_shares_to_mint` mints 1:1 until shares
+        // exist, so a pre-funded or donated balance is not priced in.
+        if Self::total_shares(&env, &token) == 0 {
             return Self::SHARE_PRICE_SCALE;
         }
 
-        Self::total_pool_assets(&env, &token)
+        let virtual_assets = Self::total_pool_assets(&env, &token)
+            .checked_add(Self::VIRTUAL_ASSETS)
+            .expect("virtual assets overflow");
+        let virtual_shares = Self::total_shares(&env, &token)
+            .checked_add(Self::VIRTUAL_SHARES)
+            .expect("virtual shares overflow");
+
+        virtual_assets
             .checked_mul(Self::SHARE_PRICE_SCALE)
-            .and_then(|v| v.checked_div(total_shares))
+            .and_then(|v| v.checked_div(virtual_shares))
             .expect("share price overflow")
     }
 

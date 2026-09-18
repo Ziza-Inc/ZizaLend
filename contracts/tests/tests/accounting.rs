@@ -332,7 +332,8 @@ fn truncating_redemption_accrues_to_remaining_holders() {
     // shares (600), so redemption has to floor.
     stellar.mint(&f.pool_id, &1);
     let price_before = pool.get_share_price(&f.token_id);
-    assert_eq!(price_before, 1_001_666);
+    // (601 + 1) * SHARE_PRICE_SCALE / (600 + 1), on the virtual offset.
+    assert_eq!(price_before, 1_001_663);
 
     // Advance past the minimum share hold time, then redeem one share.
     f.env
@@ -359,4 +360,98 @@ fn truncating_redemption_accrues_to_remaining_holders() {
         a_claim + b_claim <= token.balance(&f.pool_id),
         "the pool must hold at least the sum of all holders' claims"
     );
+}
+
+/// The first-depositor inflation attack must cost the attacker more than it yields.
+///
+/// The attack: take the smallest allowed position, then send tokens straight to the
+/// pool address. A direct transfer raises `total_assets` without minting shares, so a
+/// later depositor's `floor(amount * shares / assets)` rounds down and the attacker
+/// redeems at the inflated price, keeping the difference. Repeated against a fresh
+/// pool it drains one victim at a time.
+///
+/// `calc_shares_to_mint`/`calc_assets_to_redeem` credit a virtual share and asset to
+/// both sides of every conversion, so a donation is shared with that virtual position
+/// instead of being captured by its sender. This sweeps several donation and victim
+/// sizes. Against the pre-offset implementation every row below nets the attacker a
+/// profit (the first row alone returns 9,117 for a 9,100 outlay); every row must now
+/// return no more than was put in.
+#[test]
+fn donation_inflation_attack_is_unprofitable_for_the_attacker() {
+    for (donation, victim_deposit) in [
+        (9_000_i128, 200_i128),
+        (9_000, 1_000),
+        (100_000, 5_000),
+        (1_000_000, 50_000),
+    ] {
+        let f = setup(0);
+        let pool = LendingPoolClient::new(&f.env, &f.pool_id);
+        let token = TokenClient::new(&f.env, &f.token_id);
+        let stellar = StellarAssetClient::new(&f.env, &f.token_id);
+
+        let attacker = Address::generate(&f.env);
+        let victim = Address::generate(&f.env);
+
+        // 1. The attacker takes the smallest allowed position: 100 tokens, 100 shares.
+        stellar.mint(&attacker, &100);
+        pool.deposit(&attacker, &f.token_id, &100);
+        assert_eq!(pool.get_shares(&attacker, &f.token_id), 100);
+
+        // 2. The attacker donates directly, minting no shares.
+        stellar.mint(&f.pool_id, &donation);
+
+        // 3. The victim deposits.
+        stellar.mint(&victim, &victim_deposit);
+        let victim_result = pool.try_deposit(&victim, &f.token_id, &victim_deposit);
+        if matches!(victim_result, Err(Ok(_))) {
+            // Refusing the deposit is a safe outcome: the victim keeps their tokens
+            // instead of buying worthless shares.
+            assert_eq!(
+                token.balance(&victim),
+                victim_deposit,
+                "a refused deposit must leave the victim's funds untouched"
+            );
+            continue;
+        }
+        assert!(
+            pool.get_shares(&victim, &f.token_id) >= 1,
+            "an accepted deposit must not mint zero shares"
+        );
+
+        // 4. The attacker exits with everything they hold.
+        f.env
+            .ledger()
+            .set_sequence_number(f.env.ledger().sequence() + 10);
+        let attacker_shares = pool.get_shares(&attacker, &f.token_id);
+        pool.withdraw(&attacker, &f.token_id, &attacker_shares);
+
+        let attacker_in = 100 + donation;
+        let attacker_out = token.balance(&attacker);
+        assert!(
+            attacker_out <= attacker_in,
+            "attack must not be profitable: donated {donation} plus a 100 position = \
+             {attacker_in} outlay, exited with {attacker_out}"
+        );
+
+        // 5. The victim exits too, and the attacker's loss must be at least the
+        //    damage they did. A griefing attack that costs less than the harm it
+        //    causes would still be worth mounting even without a profit.
+        f.env
+            .ledger()
+            .set_sequence_number(f.env.ledger().sequence() + 10);
+        let victim_shares = pool.get_shares(&victim, &f.token_id);
+        pool.withdraw(&victim, &f.token_id, &victim_shares);
+
+        let attacker_loss = attacker_in - attacker_out;
+        let victim_out = token.balance(&victim);
+        assert!(
+            victim_out >= 0,
+            "the victim must be able to exit with a non-negative balance"
+        );
+        assert!(
+            victim_out >= victim_deposit || attacker_loss >= victim_deposit - victim_out,
+            "griefing must cost the attacker at least the damage done: attacker lost \
+             {attacker_loss}, victim deposited {victim_deposit} and recovered {victim_out}"
+        );
+    }
 }

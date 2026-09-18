@@ -107,8 +107,9 @@ fn invariant_proportional_claim_holds_after_multiple_deposits() {
         let shares = pool.get_shares(&provider, &token_id);
         let deposit_value = pool.get_deposit(&provider, &token_id);
 
-        // Math: proportional_claim = shares * total_assets / total_shares
-        let expected_value = shares * total_assets / total_shares;
+        // Math: proportional_claim = shares * (total_assets + 1) / (total_shares + 1),
+        // converted on the same virtual offset deposits use.
+        let expected_value = shares * (total_assets + 1) / (total_shares + 1);
         assert_eq!(
             deposit_value, expected_value,
             "Provider {} claim mismatch: got {}, expected {}",
@@ -249,11 +250,12 @@ fn invariant_later_depositors_get_fewer_shares_per_token() {
     pool.deposit(&bob, &token_id, &1_000);
     assert_eq!(pool.get_shares(&bob, &token_id), 500);
 
-    // Bob's 500 shares should be worth 1,000 (his deposit)
-    assert_eq!(pool.get_deposit(&bob, &token_id), 1_000);
+    // Bob's 500 shares are worth his 1,000 deposit, less the one unit the virtual
+    // position retains from the whole pool.
+    assert_eq!(pool.get_deposit(&bob, &token_id), 999);
 
-    // Alice's 1,000 shares should be worth 2,000 (principal + all yield)
-    assert_eq!(pool.get_deposit(&alice, &token_id), 2_000);
+    // Alice's 1,000 shares are worth 2,000 (principal + all yield), likewise less one.
+    assert_eq!(pool.get_deposit(&alice, &token_id), 1_999);
 }
 
 /// Invariant: Depositor count tracked correctly through full lifecycle.
