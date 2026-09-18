@@ -42,8 +42,11 @@ export function getSiteUrl() {
  * display, and no theme colour even though the manifest already existed.
  */
 export function buildRootMetadata(): Metadata {
+  const siteUrl = getSiteUrl();
+  const ogImage = new URL(OG_IMAGE_PATH, siteUrl).toString();
+
   return {
-    metadataBase: getSiteUrl(),
+    metadataBase: siteUrl,
     title: {
       default: SITE_TITLE,
       template: `%s | ${SITE_NAME}`,
@@ -65,6 +68,30 @@ export function buildRootMetadata(): Metadata {
       capable: true,
       title: SITE_NAME,
       statusBarStyle: "default",
+    },
+    // Landing-page and root-level shares previously emitted no preview at all:
+    // OpenGraph/Twitter tags were only produced by per-page builders, and the
+    // root route uses none of them.
+    openGraph: {
+      type: "website",
+      siteName: SITE_NAME,
+      title: SITE_TITLE,
+      description: SITE_DESCRIPTION,
+      url: siteUrl.toString(),
+      images: [
+        {
+          url: ogImage,
+          width: 1200,
+          height: 630,
+          alt: `${SITE_NAME} social preview`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: SITE_TITLE,
+      description: SITE_DESCRIPTION,
+      images: [ogImage],
     },
   };
 }

@@ -50,6 +50,17 @@ describe("buildRootMetadata", () => {
     expect(metadata.appleWebApp).toMatchObject({ capable: true });
   });
 
+  it("provides OpenGraph and Twitter defaults for the root route", () => {
+    const metadata = buildRootMetadata();
+    const ogImages = metadata.openGraph?.images;
+    const images = Array.isArray(ogImages) ? ogImages : ogImages ? [ogImages] : [];
+
+    expect(metadata.openGraph).toMatchObject({ siteName: "Zizalend", type: "website" });
+    expect(images.length).toBeGreaterThan(0);
+    expect(String((images[0] as { url: string }).url)).toMatch(/\.png$/);
+    expect(metadata.twitter).toMatchObject({ card: "summary_large_image" });
+  });
+
   it("keeps the marketing title as the default with a template for child pages", () => {
     const metadata = buildRootMetadata();
 
