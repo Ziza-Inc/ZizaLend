@@ -1,0 +1,16 @@
+# Review routing.
+#
+# Everything currently routes to the single maintainer of the organisation. The file exists
+# anyway, for two reasons that are worth writing down:
+#
+#   1. Branch protection requires an approving review. Without CODEOWNERS GitHub still
+#      allows that review, but there is no recorded answer to "who owns this path", and the
+#      answer only gets harder to reconstruct as the repository grows.
+#   2. When a second maintainer joins, the split is an edit to this file rather than a
+#      research task. The obvious splits, when they are needed, are: `/contracts/` and
+#      `/scripts/` (on-chain and deployment), `/backend/`, `/frontend/`, and
+#      `/.github/workflows/` together with `SECURITY.md`.
+#
+# Paths use the last matching pattern, so a more specific rule added later overrides this one.
+
+* @omolobamoyinoluwa-max
