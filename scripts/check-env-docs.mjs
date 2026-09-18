@@ -4,7 +4,8 @@
  * check-env-docs.mjs
  *
  * Compares keys found in backend/.env.example and frontend/.env.example
- * against the tables listed in docs/ENVIRONMENT.md.
+ * against the tables listed in docs/ENVIRONMENT.md, and verifies that the
+ * root .env.example covers every variable the backend validates at startup.
  *
  * Exits with code 1 if any key is missing from either side.
  *
@@ -71,6 +72,35 @@ for (const { path, label } of envFiles) {
     console.error(`\n⚠️  [${label}] Keys in docs/ENVIRONMENT.md but not in .env.example:`);
     for (const k of unexpected) console.error(`   - ${k}`);
   }
+}
+
+// ── Root template coverage ────────────────────────────────────────────────────
+// The README tells developers to `cp .env.example .env`, so the root template
+// must list every variable backend/src/config/env.ts rejects as missing. It had
+// silently drifted nine variables behind, producing a backend that exited on
+// startup for anyone following the quick start.
+const envValidatorPath = join(root, "backend", "src", "config", "env.ts");
+const envValidatorSource = readFileSync(envValidatorPath, "utf-8");
+const requiredVars = [...envValidatorSource.matchAll(/^\s*'([A-Z][A-Z0-9_]*)',?\s*$/gm)].map(
+  (match) => match[1],
+);
+
+if (requiredVars.length === 0) {
+  console.error(
+    "\n❌ Could not parse REQUIRED_ENV_VARS from backend/src/config/env.ts — has its shape changed?",
+  );
+  exitCode = 1;
+} else {
+  const rootEnvKeys = new Set(parseEnvKeys(join(root, ".env.example")));
+  const missingInRoot = requiredVars.filter((key) => !rootEnvKeys.has(key));
+
+  if (missingInRoot.length > 0) {
+    console.error("\n❌ [.env.example] Backend-required keys missing from the root template:");
+    for (const key of missingInRoot) console.error(`   - ${key}`);
+    exitCode = 1;
+  }
+
+  console.log(`   Root template covers all ${requiredVars.length} required backend variables.`);
 }
 
 // Also check that doc has the backend and frontend sections
