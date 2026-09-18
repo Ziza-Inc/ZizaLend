@@ -1,4 +1,4 @@
-import { buildPageMetadata, getSiteUrl } from "./metadata";
+import { buildPageMetadata, buildRootMetadata, getSiteUrl, SITE_TITLE } from "./metadata";
 
 const ORIGINAL_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
 
@@ -27,6 +27,33 @@ describe("getSiteUrl", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://staging.zizalend.com";
 
     expect(getSiteUrl().hostname).toBe("staging.zizalend.com");
+  });
+});
+
+describe("buildRootMetadata", () => {
+  it("advertises the PWA manifest so the app is installable", () => {
+    const metadata = buildRootMetadata();
+
+    expect(metadata.manifest).toBe("/manifest.webmanifest");
+  });
+
+  it("declares browser and Apple touch icons that exist in public/", () => {
+    const metadata = buildRootMetadata();
+    const icons = metadata.icons as { icon?: unknown } | undefined;
+    const rawIcon = icons?.icon;
+    const iconList = Array.isArray(rawIcon) ? rawIcon : rawIcon ? [rawIcon] : [];
+
+    expect(iconList.length).toBeGreaterThanOrEqual(4);
+    expect(iconList.every((icon) => String((icon as { url: string }).url).endsWith(".png"))).toBe(
+      true,
+    );
+    expect(metadata.appleWebApp).toMatchObject({ capable: true });
+  });
+
+  it("keeps the marketing title as the default with a template for child pages", () => {
+    const metadata = buildRootMetadata();
+
+    expect(metadata.title).toEqual({ default: SITE_TITLE, template: "%s | Zizalend" });
   });
 });
 

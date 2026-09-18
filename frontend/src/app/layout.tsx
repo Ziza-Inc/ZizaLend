@@ -13,7 +13,7 @@ import WalletConnectionModal from "./components/wallet/WalletConnectionModal";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { THEME_STORAGE_KEY } from "./lib/theme";
-import { getSiteUrl } from "./lib/metadata";
+import { buildRootMetadata } from "./lib/metadata";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -25,12 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  metadataBase: getSiteUrl(),
-  title: "Zizalend — Borderless P2P Lending & Remittance",
-  description:
-    "The premium DeFi lending protocol on Stellar. Turn remittance history into credit history with blockchain-powered micro-loans and instant cross-border transfers.",
-};
+export const metadata: Metadata = buildRootMetadata();
 
 export default async function RootLayout({
   children,
