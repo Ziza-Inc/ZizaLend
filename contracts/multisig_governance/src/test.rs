@@ -712,3 +712,68 @@ fn has_approved_tracks_approvals() {
     assert!(client.has_approved(&s1));
     assert!(client.has_approved(&s2));
 }
+
+// ── Instance TTL ─────────────────────────────────────────────────────────────
+
+/// Every entry point must keep the instance entry alive. If the instance entry
+/// archives, `read_admin` returns `NotInitialized` and governance is bricked
+/// until someone manually restores the contract.
+#[test]
+fn instance_ttl_stays_above_the_threshold_after_calls() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(GovernanceContract, ());
+    let client = GovernanceContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let target = env.register(MockTarget, ());
+
+    client.initialize(&admin, &target);
+    let ttl_after_init = env.as_contract(&id, || env.storage().instance().get_ttl());
+
+    // A state-mutating call and two views all bump the TTL.
+    let signer = Address::generate(&env);
+    let signers = Vec::from_slice(&env, &[signer]);
+    client.propose_admin_transfer(
+        &Address::generate(&env),
+        &signers,
+        &1,
+        &MIN_TIMELOCK_SECONDS,
+    );
+    let _ = client.get_proposal_count();
+    let _ = client.has_pending_transfer();
+
+    let ttl = env.as_contract(&id, || env.storage().instance().get_ttl());
+
+    assert!(
+        ttl >= INSTANCE_TTL_THRESHOLD,
+        "instance TTL {ttl} fell below the restore threshold {INSTANCE_TTL_THRESHOLD}"
+    );
+    assert!(ttl_after_init >= INSTANCE_TTL_THRESHOLD);
+}
+
+/// The views stay callable as the chain advances, which is only possible while
+/// the instance entry continues to be extended.
+#[test]
+fn views_remain_callable_across_many_ledgers() {
+    use soroban_sdk::testutils::storage::Instance as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(GovernanceContract, ());
+    let client = GovernanceContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    let target = env.register(MockTarget, ());
+    client.initialize(&admin, &target);
+
+    // Advance well past a single threshold window (17,280 ledgers).
+    for _ in 0..40 {
+        env.ledger().with_mut(|li| {
+            li.sequence_number += 1_000;
+        });
+        assert_eq!(client.version(), 1);
+    }
+
+    assert!(env.as_contract(&id, || env.storage().instance().get_ttl()) > 0);
+}
