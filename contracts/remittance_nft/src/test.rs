@@ -1965,3 +1965,185 @@ fn test_authorized_minter_cannot_resurrect_burned_account() {
     let meta = client.get_metadata(&user).unwrap();
     assert_eq!(meta.score, RemittanceNFT::MAX_SCORE);
 }
+
+// ── Metadata URI validation ───────────────────────────────────────────────────
+//
+// `validate_metadata_uri` used to construct its `ipfs://` and `https://` prefix
+// strings and then discard them, falling back to a length check -- so any string of
+// eight or more bytes passed, with no scheme at all. These tests pin the check the
+// contract advertises, on every write path that stores a URI.
+
+#[test]
+fn test_mint_rejects_a_uri_without_an_allowlisted_scheme() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let hash = create_test_hash(&env, 1);
+
+    for (label, uri) in [
+        // Eight bytes with no scheme: this is exactly what the old check accepted.
+        ("no scheme", "zzzzzzzz"),
+        ("disallowed scheme", "ftp://x.io/a"),
+        ("scheme only, ipfs", "ipfs://"),
+        ("scheme only, https", "https://"),
+        ("scheme after a prefix", "x-ipfs://Qm"),
+    ] {
+        let user = Address::generate(&env);
+        let result = client.try_mint(&user, &500, &hash, &String::from_str(&env, uri), &None);
+        assert_eq!(
+            result,
+            Err(Ok(NftError::InvalidMetadataUri)),
+            "{label}: {uri} must be rejected"
+        );
+        assert!(
+            client.get_metadata(&user).is_none(),
+            "{label}: a rejected mint must not create an NFT"
+        );
+    }
+}
+
+#[test]
+fn test_mint_accepts_allowlisted_schemes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let hash = create_test_hash(&env, 1);
+
+    for uri in [
+        "ipfs://QmTest123",
+        "https://example.com/remittance-nft.json",
+    ] {
+        let user = Address::generate(&env);
+        client.mint(&user, &500, &hash, &String::from_str(&env, uri), &None);
+        assert_eq!(
+            client.get_metadata_uri(&user).unwrap(),
+            String::from_str(&env, uri)
+        );
+    }
+}
+
+#[test]
+fn test_metadata_uri_is_length_bounded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let hash = create_test_hash(&env, 1);
+    let scheme = "ipfs://";
+
+    // Exactly at the cap is accepted...
+    let at_cap = format!(
+        "{scheme}{}",
+        "a".repeat(RemittanceNFT::MAX_METADATA_URI_LEN - scheme.len())
+    );
+    let user = Address::generate(&env);
+    client.mint(&user, &500, &hash, &String::from_str(&env, &at_cap), &None);
+    assert_eq!(
+        client.get_metadata_uri(&user).unwrap().len() as usize,
+        at_cap.len()
+    );
+
+    // ...one byte over is not. A persistent key is never pruned, so an unbounded
+    // URI was an unbounded storage payload.
+    let over_cap = format!(
+        "{scheme}{}",
+        "a".repeat(RemittanceNFT::MAX_METADATA_URI_LEN - scheme.len() + 1)
+    );
+    let other = Address::generate(&env);
+    assert_eq!(
+        client.try_mint(
+            &other,
+            &500,
+            &hash,
+            &String::from_str(&env, &over_cap),
+            &None
+        ),
+        Err(Ok(NftError::InvalidMetadataUri))
+    );
+}
+
+#[test]
+fn test_update_metadata_uri_rejects_invalid_without_mutating() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let original = create_test_uri(&env);
+    client.mint(&user, &500, &create_test_hash(&env, 1), &original, &None);
+
+    assert_eq!(
+        client.try_update_metadata_uri(&user, &String::from_str(&env, "no-scheme-here"), &None),
+        Err(Ok(NftError::InvalidMetadataUri))
+    );
+    assert_eq!(
+        client.try_update_metadata_uri(&user, &String::from_str(&env, "ipfs://"), &None),
+        Err(Ok(NftError::InvalidMetadataUri))
+    );
+
+    // A rejected update must leave the stored value alone.
+    assert_eq!(client.get_metadata_uri(&user).unwrap(), original);
+
+    let replacement = String::from_str(&env, "https://example.com/m.json");
+    client.update_metadata_uri(&user, &replacement, &None);
+    assert_eq!(client.get_metadata_uri(&user).unwrap(), replacement);
+}
+
+#[test]
+fn test_admin_remint_rejects_an_invalid_uri() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+    client.burn(&user, &None);
+    client.approve_remint(&user);
+
+    assert_eq!(
+        client.try_admin_remint(
+            &user,
+            &500,
+            &create_test_hash(&env, 2),
+            &String::from_str(&env, "not-a-uri-at-all"),
+        ),
+        Err(Ok(NftError::InvalidMetadataUri))
+    );
+    // The one-time approval must survive a rejected attempt, so the admin can retry
+    // with a valid URI rather than having to re-approve.
+    client.admin_remint(
+        &user,
+        &500,
+        &create_test_hash(&env, 2),
+        &create_test_uri(&env),
+    );
+    assert_eq!(client.get_score(&user), 500);
+}

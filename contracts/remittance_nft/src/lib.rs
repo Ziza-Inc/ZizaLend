@@ -90,6 +90,10 @@ impl RemittanceNFT {
     /// events, enabling spam attacks. This floor rejects such calls early with
     /// InvalidRepaymentAmount (error 7).
     pub const MIN_SCORE_UPDATE_REPAYMENT: i128 = 100;
+    /// Upper bound on a stored metadata URI, in bytes. Every write path validated
+    /// only a minimum length before, so an authorised minter could store an
+    /// arbitrarily large string under a persistent key that is never pruned.
+    pub const MAX_METADATA_URI_LEN: usize = 256;
 
     fn admin_key() -> soroban_sdk::Symbol {
         symbol_short!("ADMIN")
@@ -175,19 +179,64 @@ impl RemittanceNFT {
         Self::bump_persistent_ttl(env, &list_key);
     }
 
-    fn validate_metadata_uri(env: &Env, uri: &String) -> Result<(), NftError> {
-        // Check if URI starts with "ipfs://" or "https://"
-        let _ipfs_prefix = String::from_str(env, "ipfs://");
-        let _https_prefix = String::from_str(env, "https://");
+    /// The URI a caller passes must carry one of these schemes.
+    const ALLOWED_METADATA_URI_SCHEMES: [&str; 2] = ["ipfs://", "https://"];
 
-        // Simple validation: check if the URI has a reasonable length and starts with valid prefix
-        // We can't do complex string operations in no_std, so we do basic checks
-        if uri.len() < 8 {
+    /// True when `uri` begins with the ASCII `prefix`.
+    ///
+    /// Soroban's `String` has no `starts_with`. It also exposes no indexing: the only
+    /// way out of a `String` is `copy_into_slice`, which requires the destination to be
+    /// exactly the string's length. So copy the head into a bounded stack buffer and
+    /// compare. Any length beyond the cap is rejected before this is reached.
+    fn has_ascii_prefix(uri: &String, prefix: &[u8]) -> bool {
+        let len = uri.len() as usize;
+        if len < prefix.len() || len > Self::MAX_METADATA_URI_LEN {
+            return false;
+        }
+
+        let mut buffer = [0u8; Self::MAX_METADATA_URI_LEN];
+        uri.copy_into_slice(&mut buffer[..len]);
+        &buffer[..prefix.len()] == prefix
+    }
+
+    /// Validate a metadata URI supplied by a caller.
+    ///
+    /// This previously built `ipfs://` and `https://` prefix strings and then never
+    /// used them, falling back to a bare length check -- so any string of eight or more
+    /// characters was accepted, including one with no scheme at all, and the contract
+    /// advertised a check it did not perform.
+    ///
+    /// Now the URI must carry an allowlisted scheme and stay within a bounded length.
+    /// Both are enforced on every write path (`mint`, `admin_remint`,
+    /// `update_metadata_uri`), so a stored URI is always resolvable and never an
+    /// unbounded storage payload.
+    fn validate_metadata_uri(uri: &String) -> Result<(), NftError> {
+        let len = uri.len() as usize;
+        if len == 0 || len > Self::MAX_METADATA_URI_LEN {
             return Err(NftError::InvalidMetadataUri);
         }
 
-        // For now, we accept any non-empty URI with reasonable length
-        // More sophisticated validation would require string comparison which is limited in no_std
+        // An allowlist rather than a denylist: the UI renders this string as a link, so
+        // anything the contract accepts becomes something a user is invited to click.
+        // Only content-addressed or TLS-served metadata is accepted.
+        let mut scheme_len = 0usize;
+        let mut recognised = false;
+        for scheme in Self::ALLOWED_METADATA_URI_SCHEMES {
+            if Self::has_ascii_prefix(uri, scheme.as_bytes()) {
+                scheme_len = scheme.len();
+                recognised = true;
+                break;
+            }
+        }
+        if !recognised {
+            return Err(NftError::InvalidMetadataUri);
+        }
+
+        // A scheme on its own is not a location.
+        if len == scheme_len {
+            return Err(NftError::InvalidMetadataUri);
+        }
+
         Ok(())
     }
 
@@ -486,7 +535,7 @@ impl RemittanceNFT {
         Self::require_admin_or_authorized_minter(&env, minter)?;
 
         // Validate metadata URI format
-        Self::validate_metadata_uri(&env, &metadata_uri)?;
+        Self::validate_metadata_uri(&metadata_uri)?;
 
         let metadata_key = DataKey::Metadata(user.clone());
         let score_key = DataKey::Score(user.clone());
@@ -539,7 +588,7 @@ impl RemittanceNFT {
         Self::assert_not_paused(&env)?;
 
         // Validate metadata URI format
-        Self::validate_metadata_uri(&env, &metadata_uri)?;
+        Self::validate_metadata_uri(&metadata_uri)?;
 
         // Must be a previously burned account — not a first-time mint.
         let burned_key = DataKey::Burned(user.clone());
@@ -613,7 +662,7 @@ impl RemittanceNFT {
         Self::require_admin_or_authorized_minter(&env, minter)?;
 
         // Validate metadata URI format
-        Self::validate_metadata_uri(&env, &new_metadata_uri)?;
+        Self::validate_metadata_uri(&new_metadata_uri)?;
 
         let metadata_key = DataKey::Metadata(user.clone());
         let mut metadata =

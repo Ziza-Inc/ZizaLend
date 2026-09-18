@@ -21,6 +21,7 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 5. **Seized ≠ burned**: A seized borrower can still repay loans and clear their debt; seized is cleared on burn/transfer/remint.
 6. **Transfer moves all state**: Metadata, score history, default count, and seized flag all move atomically to the destination.
 7. **Minter cap**: Maximum 32 authorised minters.
+8. **Metadata URIs are allowlisted**: only `ipfs://` or `https://` URIs, at most `MAX_METADATA_URI_LEN` (256) bytes, are stored. Enforced on `mint`, `admin_remint`, and `update_metadata_uri`, so a stored URI is always resolvable and never an unbounded storage payload.
 
 ## Public Functions
 
