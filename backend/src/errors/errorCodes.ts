@@ -17,6 +17,8 @@ export enum ErrorCode {
   INVALID_CHALLENGE = 'INVALID_CHALLENGE',
   MISSING_FIELD = 'MISSING_FIELD',
   VALIDATION_ERROR = 'VALIDATION_ERROR',
+  INVALID_JSON = 'INVALID_JSON',
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
 
   // Authentication Errors (401)
   UNAUTHORIZED = 'UNAUTHORIZED',
@@ -27,6 +29,9 @@ export enum ErrorCode {
   // Authorization Errors (403)
   FORBIDDEN = 'FORBIDDEN',
   ACCESS_DENIED = 'ACCESS_DENIED',
+
+  // Method Error (405)
+  METHOD_NOT_ALLOWED = 'METHOD_NOT_ALLOWED',
 
   // Not Found Errors (404)
   NOT_FOUND = 'NOT_FOUND',
@@ -43,6 +48,7 @@ export enum ErrorCode {
 
   // Server Errors (500)
   INTERNAL_ERROR = 'INTERNAL_ERROR',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
   DATABASE_ERROR = 'DATABASE_ERROR',
   EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR',
   BLOCKCHAIN_ERROR = 'BLOCKCHAIN_ERROR',
@@ -114,6 +120,20 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     description: 'Request validation failed',
     suggestedAction: 'Review the validation errors and correct the input',
   },
+  [ErrorCode.INVALID_JSON]: {
+    code: ErrorCode.INVALID_JSON,
+    message: 'Request body is not valid JSON',
+    httpStatus: 400,
+    description: 'The request body could not be parsed as JSON',
+    suggestedAction: 'Send a well-formed JSON body and retry',
+  },
+  [ErrorCode.PAYLOAD_TOO_LARGE]: {
+    code: ErrorCode.PAYLOAD_TOO_LARGE,
+    message: 'Request payload too large',
+    httpStatus: 413,
+    description: 'The request body exceeds the maximum allowed size',
+    suggestedAction: 'Reduce the payload size and retry',
+  },
 
   // Authentication Errors
   [ErrorCode.UNAUTHORIZED]: {
@@ -159,6 +179,13 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     httpStatus: 403,
     description: 'Access to this resource is denied',
     suggestedAction: 'Contact support if you believe this is an error',
+  },
+  [ErrorCode.METHOD_NOT_ALLOWED]: {
+    code: ErrorCode.METHOD_NOT_ALLOWED,
+    message: 'Method not allowed',
+    httpStatus: 405,
+    description: 'The HTTP method is not supported for this resource',
+    suggestedAction: 'Use a supported HTTP method for this endpoint',
   },
   [ErrorCode.BORROWER_MISMATCH]: {
     code: ErrorCode.BORROWER_MISMATCH,
@@ -230,6 +257,13 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     httpStatus: 500,
     description: 'An unexpected error occurred on the server',
     suggestedAction: 'Please try again later or contact support',
+  },
+  [ErrorCode.SERVICE_UNAVAILABLE]: {
+    code: ErrorCode.SERVICE_UNAVAILABLE,
+    message: 'Service temporarily unavailable',
+    httpStatus: 503,
+    description: 'A required dependency is unavailable',
+    suggestedAction: 'Please try again later',
   },
   [ErrorCode.DATABASE_ERROR]: {
     code: ErrorCode.DATABASE_ERROR,
@@ -311,10 +345,16 @@ export function getDefaultErrorCodeForStatus(status: number): ErrorCode {
       return ErrorCode.FORBIDDEN;
     case 404:
       return ErrorCode.NOT_FOUND;
+    case 405:
+      return ErrorCode.METHOD_NOT_ALLOWED;
     case 409:
       return ErrorCode.CONFLICT;
+    case 413:
+      return ErrorCode.PAYLOAD_TOO_LARGE;
     case 429:
       return ErrorCode.RATE_LIMIT_EXCEEDED;
+    case 503:
+      return ErrorCode.SERVICE_UNAVAILABLE;
     case 500:
     default:
       return ErrorCode.INTERNAL_ERROR;

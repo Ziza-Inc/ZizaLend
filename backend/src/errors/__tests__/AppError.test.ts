@@ -65,10 +65,12 @@ describe('AppError', () => {
       [401, ErrorCode.UNAUTHORIZED],
       [403, ErrorCode.FORBIDDEN],
       [404, ErrorCode.NOT_FOUND],
+      [405, ErrorCode.METHOD_NOT_ALLOWED],
       [409, ErrorCode.CONFLICT],
+      [413, ErrorCode.PAYLOAD_TOO_LARGE],
       [429, ErrorCode.RATE_LIMIT_EXCEEDED],
       [500, ErrorCode.INTERNAL_ERROR],
-      [503, ErrorCode.INTERNAL_ERROR],
+      [503, ErrorCode.SERVICE_UNAVAILABLE],
     ])('maps status %i to %s', (status, expected) => {
       expect(getDefaultErrorCodeForStatus(status)).toBe(expected);
     });
