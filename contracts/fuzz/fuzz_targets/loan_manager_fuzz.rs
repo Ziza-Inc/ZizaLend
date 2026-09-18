@@ -2,7 +2,7 @@
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use lending_pool::LendingPool;
+use lending_pool::{LendingPool, LendingPoolClient};
 use loan_manager::{LoanManager, LoanManagerClient};
 use remittance_nft::{RemittanceNFT, RemittanceNFTClient};
 use soroban_sdk::testutils::Address as _;
@@ -73,6 +73,11 @@ fuzz_target!(|data: FuzzAction| {
     let loan_manager_id = env.register(LoanManager, ());
     let loan_manager_client = LoanManagerClient::new(&env, &loan_manager_id);
     loan_manager_client.initialize(&nft_id, &lending_pool_id, &token_id, &admin);
+
+    // Principal can only leave the pool through the pool itself, so the pool
+    // must be told which contract may request a disbursement.
+    let lending_pool_client = LendingPoolClient::new(&env, &lending_pool_id);
+    lending_pool_client.set_loan_manager(&loan_manager_id);
     
     // Authorize LoanManager to update scores in NFT contract
     nft_client.authorize_minter(&loan_manager_id);

@@ -68,6 +68,10 @@ pub enum PoolError {
     MinimumHoldTimeNotMet = 12,
     /// Deposit amount is below the configured minimum
     AmountBelowMinimum = 13,
+    /// No LoanManager has been configured for this pool
+    LoanManagerNotSet = 14,
+    /// Caller is not the configured LoanManager
+    UnauthorizedLoanManager = 15,
 }
 
 /// Storage keys for the LendingPool contract.
@@ -102,6 +106,9 @@ pub enum DataKey {
     AccumulatedDust,
     ProposedAdmin,
     Version,
+    /// Address of the LoanManager contract permitted to disburse principal and
+    /// settle outstanding balances. Set by the admin at deploy time.
+    LoanManager,
 }
 
 #[contracttype]
@@ -978,9 +985,15 @@ impl LendingPool {
         Self::read_total_outstanding(&env, &token)
     }
 
+    /// Adjust the outstanding counter by a signed `delta`.
+    ///
+    /// Retained for the LoanManager's net-delta call sites, but re-gated from
+    /// admin auth to LoanManager auth: the pool's admin and the contract that
+    /// creates loans are different roles, and only the latter moves this counter.
     pub fn adjust_outstanding(env: Env, token: Address, delta: i128) {
-        let lending_pool = Self::admin(&env);
-        lending_pool.require_auth();
+        if Self::require_loan_manager(&env).is_err() {
+            panic!("loan manager not set");
+        }
 
         if delta == 0 {
             return;
@@ -1002,6 +1015,130 @@ impl LendingPool {
 
     pub fn pool_balance(env: Env, token: Address) -> i128 {
         Self::read_pool_balance(&env, &token)
+    }
+
+    // ── LoanManager integration ───────────────────────────────────────────
+    //
+    // Principal must leave the pool through the pool itself. A contract address
+    // can only authorise implicitly — by being the contract currently executing
+    // — so a LoanManager calling `token.transfer(pool, borrower, amount)` can
+    // never be authorised: the pool is not in that call stack, and a signature
+    // cannot stand in for a contract address. Routing disbursement through
+    // `disburse` makes the pool the executing contract, so its implicit
+    // authorisation applies. This is the only supported way for principal to
+    // reach a borrower.
+
+    /// Set the LoanManager contract permitted to call [`Self::disburse`] and
+    /// [`Self::settle_outstanding`].
+    ///
+    /// Requires admin authorization. Re-pointing this at a hostile contract
+    /// would hand it the pool's funds, so it is admin-gated and emits an event.
+    pub fn set_loan_manager(env: Env, loan_manager: Address) -> Result<(), PoolError> {
+        Self::admin(&env).require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::LoanManager, &loan_manager);
+        Self::bump_instance_ttl(&env);
+
+        loan_manager_updated(&env, loan_manager);
+        Ok(())
+    }
+
+    /// Address of the configured LoanManager, if any.
+    pub fn get_loan_manager(env: Env) -> Option<Address> {
+        Self::bump_instance_ttl(&env);
+        env.storage().instance().get(&DataKey::LoanManager)
+    }
+
+    /// Authorise an inbound call from the configured LoanManager.
+    ///
+    /// The LoanManager is the *invoker* of this contract, so its implicit
+    /// authorisation applies and no signature is required. A caller that merely
+    /// holds the same admin key is not accepted — the pool's admin and its
+    /// LoanManager are deliberately distinct roles.
+    fn require_loan_manager(env: &Env) -> Result<Address, PoolError> {
+        let loan_manager: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::LoanManager)
+            .ok_or(PoolError::LoanManagerNotSet)?;
+        loan_manager.require_auth();
+        Self::bump_instance_ttl(env);
+        Ok(loan_manager)
+    }
+
+    /// Move `amount` of `token` from the pool to `to`, recording it as
+    /// outstanding.
+    ///
+    /// Recording the amount as outstanding is what keeps
+    /// `total_pool_assets = idle_balance + outstanding` true, so the LP share
+    /// price is unchanged by disbursement (the pool has exchanged idle tokens
+    /// for a claim of equal size) and rises only when interest is repaid.
+    ///
+    /// Callable only by the configured LoanManager. State is written before the
+    /// token transfer (checks-effects-interactions).
+    ///
+    /// # Errors
+    ///
+    /// [`PoolError::LoanManagerNotSet`] when no LoanManager is configured;
+    /// [`PoolError::ContractPaused`] when the pool is paused;
+    /// [`PoolError::InvalidAmount`] for non-positive amounts;
+    /// [`PoolError::InsufficientLiquidity`] when idle balance is below `amount`.
+    pub fn disburse(env: Env, token: Address, to: Address, amount: i128) -> Result<(), PoolError> {
+        Self::require_loan_manager(&env)?;
+        Self::assert_not_paused(&env)?;
+
+        if amount <= 0 {
+            return Err(PoolError::InvalidAmount);
+        }
+
+        let idle_balance = Self::read_pool_balance(&env, &token);
+        if amount > idle_balance {
+            return Err(PoolError::InsufficientLiquidity);
+        }
+
+        // ── EFFECTS before the external call ──────────────────────────────
+        let current = Self::read_total_outstanding(&env, &token);
+        let updated = current
+            .checked_add(amount)
+            .ok_or(PoolError::InvalidAmount)?;
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalOutstanding(token.clone()), &updated);
+        Self::bump_instance_ttl(&env);
+
+        // ── INTERACTION ───────────────────────────────────────────────────
+        TokenClient::new(&env, &token).transfer(&env.current_contract_address(), &to, &amount);
+
+        disbursed(&env, token, to, amount);
+        Ok(())
+    }
+
+    /// Reduce the pool's outstanding balance by `amount`.
+    ///
+    /// Called by the LoanManager when principal is returned (repayment),
+    /// retired (refinance downward), or written off (default). Saturates at
+    /// zero so a mis-sequenced settlement can never underflow the counter and
+    /// silently corrupt the share price.
+    ///
+    /// Callable only by the configured LoanManager.
+    pub fn settle_outstanding(env: Env, token: Address, amount: i128) -> Result<(), PoolError> {
+        Self::require_loan_manager(&env)?;
+
+        if amount < 0 {
+            return Err(PoolError::InvalidAmount);
+        }
+
+        let current = Self::read_total_outstanding(&env, &token);
+        let updated = current.saturating_sub(amount);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalOutstanding(token.clone()), &updated);
+        Self::bump_instance_ttl(&env);
+
+        outstanding_settled(&env, token, amount);
+        Ok(())
     }
 }
 

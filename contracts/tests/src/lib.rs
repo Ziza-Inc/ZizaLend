@@ -53,6 +53,10 @@ mod tests {
         nft_client.authorize_minter(&manager_id);
         manager_client.initialize(&nft_id, &pool_id, &token_id, &admin);
 
+        // Principal can only leave the pool through the pool itself; tell the
+        // pool which LoanManager may request disbursements.
+        pool_client.set_loan_manager(&manager_id);
+
         // Mint NFT for borrower
         nft_client.mint(
             &borrower,

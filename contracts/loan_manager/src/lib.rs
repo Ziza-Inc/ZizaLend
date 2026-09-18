@@ -27,6 +27,20 @@ pub trait LendingPoolInterface {
     fn is_paused(env: Env) -> bool;
     fn pool_balance(env: Env, token: Address) -> i128;
     fn get_total_outstanding(env: Env, token: Address) -> i128;
+    /// Ask the pool to move principal to a borrower.
+    ///
+    /// Declared with a unit return: the pool's `disburse` returns
+    /// `Result<(), PoolError>`, whose `Ok` payload is void, and whose `Err`
+    /// surfaces as a host error that reverts this transaction. Naming the error
+    /// type here would couple this crate to the pool crate for no benefit.
+    ///
+    /// This indirection is mandatory, not stylistic: a contract address can only
+    /// authorise implicitly, so a transfer initiated *by this contract* out of
+    /// the pool's balance can never be authorised.
+    fn disburse(env: Env, token: Address, to: Address, amount: i128);
+    /// Ask the pool to retire `amount` of principal from its outstanding
+    /// balance when a loan is repaid, refinanced down, or defaulted.
+    fn settle_outstanding(env: Env, token: Address, amount: i128);
 }
 
 mod events;
@@ -1123,8 +1137,6 @@ impl LoanManager {
     /// not pending; and [`LoanError::InsufficientPoolLiquidity`] when available
     /// pool liquidity is below the loan amount.
     pub fn approve_loan(env: Env, loan_id: u32) -> Result<(), LoanError> {
-        use soroban_sdk::token::TokenClient;
-
         // ── CHECKS ──────────────────────────────────────────────────────────
         let admin = Self::admin(&env);
         admin.require_auth();
@@ -1184,8 +1196,12 @@ impl LoanManager {
         Self::bump_persistent_ttl(&env, &loan_key);
 
         // ── INTERACTIONS (external calls last) ──────────────────────────────
-        let token_client = TokenClient::new(&env, &token);
-        token_client.transfer(&lending_pool, &borrower, &transfer_amount);
+        // The pool moves its own principal. This previously read
+        // `token.transfer(&lending_pool, &borrower, ..)`, which can never be
+        // authorised on-chain: the pool is not in this call stack, and a contract
+        // address authorises only implicitly. `disburse` makes the pool the
+        // executing contract, so its implicit authorisation applies.
+        pool_client.disburse(&token, &borrower, &transfer_amount);
 
         events::loan_approved(
             &env,
@@ -1358,6 +1374,12 @@ impl LoanManager {
         token_client.transfer(&borrower, &lending_pool, &amount);
 
         if completed {
+            // Principal is back in the pool, so retire it from the pool's
+            // outstanding balance. This is what makes LP share price rise by the
+            // interest portion of the repayment and nothing else.
+            let pool_client = PoolClient::new(&env, &lending_pool);
+            pool_client.settle_outstanding(&token, &loan.amount);
+
             // release_collateral_internal reads collateral from storage and performs
             // its own CEI, so it is safe to call after the loan state is committed.
             Self::release_collateral_internal(&env, loan_id, &loan.borrower);
@@ -1960,7 +1982,9 @@ impl LoanManager {
                 if available_liquidity < additional {
                     return Err(LoanError::InsufficientPoolLiquidity);
                 }
-                token_client.transfer(&lending_pool, &loan.borrower, &additional);
+                // Route through the pool: only the pool can authorise a transfer
+                // out of its own balance.
+                PoolClient::new(&env, &lending_pool).disburse(&token, &loan.borrower, &additional);
             }
             core::cmp::Ordering::Less => {
                 // Borrower returns the excess principal to the pool.
@@ -1968,6 +1992,9 @@ impl LoanManager {
                     .checked_sub(new_amount)
                     .expect("underflow");
                 token_client.transfer(&loan.borrower, &lending_pool, &excess_principal);
+                // The excess principal is back in the pool; retire it so the
+                // pool's share price does not treat it as still lent out.
+                PoolClient::new(&env, &lending_pool).settle_outstanding(&token, &excess_principal);
 
                 // Return excess collateral proportionally if new amount is smaller
                 if new_amount < remaining_principal {
@@ -2543,6 +2570,10 @@ impl LoanManager {
         Self::bump_persistent_ttl(&env, &loan_key);
         Self::decrement_borrower_loan_count(&env, &loan.borrower);
         Self::seize_collateral_internal(&env, loan_id);
+        // Retire the principal from the pool's outstanding balance in step with
+        // this contract's own counter, so share price stops counting a loan that
+        // will never be repaid.
+        PoolClient::new(&env, &Self::lending_pool(&env)).settle_outstanding(&token, &loan.amount);
 
         let nft_contract = Self::nft_contract(&env);
         let nft_client = NftClient::new(&env, &nft_contract);
@@ -2714,6 +2745,10 @@ impl LoanManager {
             Self::bump_persistent_ttl(&env, &loan_key);
             Self::decrement_borrower_loan_count(&env, &loan.borrower);
             Self::seize_collateral_internal(&env, loan_id);
+            // Retire the principal from the pool's outstanding balance in step
+            // with this contract's own counter.
+            PoolClient::new(&env, &Self::lending_pool(&env))
+                .settle_outstanding(&token, &loan.amount);
 
             let nft_contract = Self::nft_contract(&env);
             let nft_client = NftClient::new(&env, &nft_contract);

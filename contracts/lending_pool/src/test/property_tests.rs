@@ -21,6 +21,11 @@ fn setup_pool(env: &Env) -> (LendingPoolClient, Address, TokenClient, Address) {
     let pool_client = LendingPoolClient::new(env, &pool_id);
     pool_client.initialize(&admin);
     pool_client.set_withdrawal_cooldown(&0);
+    // The outstanding counter is LoanManager-gated. These tests drive it
+    // directly, so stand in a LoanManager address and let the test's mocked
+    // authorisation cover the call on its behalf.
+    let loan_manager = Address::generate(env);
+    pool_client.set_loan_manager(&loan_manager);
     (pool_client, token_id, token_client, admin)
 }
 

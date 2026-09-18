@@ -75,3 +75,26 @@ pub fn dust_collected(env: &Env, amount: i128) {
     let topics = (Symbol::new(env, "DustCollected"),);
     env.events().publish(topics, amount);
 }
+
+/// Emitted when the pool disburses principal to a borrower at the
+/// LoanManager's request. This is the only path by which principal leaves the
+/// pool, so off-chain indexers should treat it as the canonical "loan funded"
+/// signal alongside the LoanManager's `LoanApproved`.
+pub fn disbursed(env: &Env, token: Address, to: Address, amount: i128) {
+    let topics = (Symbol::new(env, "Disbursed"), to, token);
+    env.events().publish(topics, amount);
+}
+
+/// Emitted when the pool's outstanding balance is reduced, on principal
+/// repayment, refinance-down, or default write-off.
+pub fn outstanding_settled(env: &Env, token: Address, amount: i128) {
+    let topics = (Symbol::new(env, "OutstandingSettled"), token);
+    env.events().publish(topics, amount);
+}
+
+/// Emitted when the admin re-points the pool at a different LoanManager.
+/// High-signal for monitoring: this role can move every token in the pool.
+pub fn loan_manager_updated(env: &Env, loan_manager: Address) {
+    let topics = (Symbol::new(env, "LoanManagerSet"),);
+    env.events().publish(topics, loan_manager);
+}

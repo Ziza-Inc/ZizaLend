@@ -99,6 +99,9 @@ fuzz_target!(|actions: std::vec::Vec<FuzzAction>| {
     let lm_client = LoanManagerClient::new(&env, &lm_contract);
     lm_client.initialize(&nft_contract, &pool_contract, &token_address, &nft_admin);
     nft_client.authorize_minter(&lm_contract);
+    // Principal leaves the pool only via the pool itself, so register the
+    // LoanManager as the contract permitted to request a disbursement.
+    pool_client.set_loan_manager(&lm_contract);
 
     // Helper: drive a deposit through `try_invoke_contract` so any token
     // overflow panic stays inside the insulated call.
