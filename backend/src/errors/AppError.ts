@@ -37,8 +37,18 @@ export class AppError extends Error {
 
   /* ── Factory Methods ─────────────────────────────────────────── */
 
+  /**
+   * Generic 400 error.
+   *
+   * Defaults to VALIDATION_ERROR rather than INVALID_AMOUNT: this factory is
+   * used for every kind of bad input (missing params, malformed dates, bad
+   * filters), and clients map error codes to user-facing copy. Labelling a
+   * missing loan ID as INVALID_AMOUNT surfaced the wrong "amount" message in
+   * the UI. Callers that really mean "bad amount" should pass
+   * `ErrorCode.INVALID_AMOUNT` explicitly.
+   */
   static badRequest(message = 'Bad request', errorCode?: ErrorCode, field?: string): AppError {
-    return new AppError(message, 400, true, errorCode ?? ErrorCode.INVALID_AMOUNT, field);
+    return new AppError(message, 400, true, errorCode ?? ErrorCode.VALIDATION_ERROR, field);
   }
 
   static unauthorized(message = 'Unauthorized', errorCode?: ErrorCode): AppError {
