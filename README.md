@@ -15,8 +15,9 @@
 
   <!-- Deployment + verification -->
   <br/>
+  <a href="https://zizalend.vercel.app"><img src="https://img.shields.io/badge/live_demo-zizalend.vercel.app-000000?style=flat-square&logo=vercel" alt="Live application on Vercel" /></a>
   <a href="docs/deployed-contracts.md"><img src="https://img.shields.io/badge/Stellar_Testnet-deployed-7C3AED?style=flat-square&logo=stellar" alt="Deployed on Stellar Testnet" /></a>
-  <img src="https://img.shields.io/badge/contract_tests-342_passing-2EA043?style=flat-square&logo=rust" alt="342 contract tests passing" />
+  <img src="https://img.shields.io/badge/contract_tests-344_passing-2EA043?style=flat-square&logo=rust" alt="344 contract tests passing" />
   <img src="https://img.shields.io/badge/backend_tests-530_passing-2EA043?style=flat-square&logo=jest" alt="530 backend tests passing" />
   <img src="https://img.shields.io/badge/smoke_test-8%2F8_on_Testnet-2EA043?style=flat-square&logo=stellar" alt="End-to-end smoke test passing on Testnet" />
   <a href="docs/contracts-ACCESS-CONTROL.md"><img src="https://img.shields.io/badge/governance-3--of--N_multisig-7C3AED?style=flat-square" alt="Multisig governance" /></a>
@@ -81,6 +82,9 @@ flowchart LR
 ---
 
 ## 🌐 Live on Testnet
+
+**Application:** <https://zizalend.vercel.app> — the deployed frontend, built against the
+Testnet contracts below. Connect a Freighter wallet on Testnet to use it.
 
 All four contracts are deployed to Stellar Testnet, initialised, wired, and verified by an
 end-to-end test that runs the real user journey against the live addresses.

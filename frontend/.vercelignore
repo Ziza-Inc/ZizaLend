@@ -1,0 +1,12 @@
+# Local env files must never be uploaded: `next build` on Vercel reads the project's
+# configured environment variables, and an uploaded `.env.local` would take precedence over
+# them, shipping a build wired to whatever testnet deployment produced the file locally.
+.env
+.env.local
+.env.*.local
+.vercel
+node_modules
+.next
+coverage
+test-results
+playwright-report

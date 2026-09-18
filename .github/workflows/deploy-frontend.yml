@@ -1,0 +1,131 @@
+name: Deploy Frontend
+
+# Automatic deployment of the Next.js frontend.
+#
+# Two things are worth knowing about how this is wired.
+#
+# **Why Actions and not Vercel's Git integration.** Vercel can deploy straight from GitHub,
+# but that requires the Vercel GitHub App to be installed on the `Ziza-Inc` organisation,
+# which needs an org owner to complete an interactive OAuth consent. This workflow reaches
+# the same end — a production deployment on every push to `main`, with the deployment URL
+# recorded on the commit — without that out-of-band step. If the App is installed later,
+# both mechanisms coexist harmlessly; this one stays authoritative for production.
+#
+# **Why the build is verified before it is deployed.** A green Vercel build is not evidence
+# that the app works: `next build` succeeds on code with a broken route or an unresolved
+# import so long as the failure is not reached at build time. Typecheck and lint run first,
+# so a deployment can never publish a revision that would have failed the same checks in CI.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Vercel target"
+        required: true
+        default: production
+        type: choice
+        options: [production, preview]
+
+concurrency:
+  # One production deployment at a time, and never cancel one mid-flight: a cancelled deploy
+  # can leave the alias pointing at a partially promoted build.
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    environment:
+      name: ${{ github.event.inputs.environment == 'preview' && 'preview' || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test -- --ci --passWithNoTests
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment
+        run: |
+          vercel pull --yes \
+            --environment=${{ github.event.inputs.environment == 'preview' && 'preview' || 'production' }} \
+            --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build deployment artifact
+        run: vercel build ${{ github.event.inputs.environment != 'preview' && '--prod' || '' }} --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy prebuilt artifact
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt \
+            ${{ github.event.inputs.environment != 'preview' && '--prod' || '' }} \
+            --token="$VERCEL_TOKEN")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $url"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Verify the deployment serves
+        run: |
+          set -euo pipefail
+          # A deployment can report success while the alias serves a stale build, so the
+          # published URL is fetched rather than trusted.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 5 --retry-delay 5 \
+            "${{ steps.deploy.outputs.url }}")
+          echo "${{ steps.deploy.outputs.url }} -> $code"
+          test "$code" = "200"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Frontend deployment"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | ${{ steps.deploy.outputs.url }} |"
+            echo "| Target | ${{ github.event.inputs.environment == 'preview' && 'preview' || 'production' }} |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

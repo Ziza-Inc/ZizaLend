@@ -60,7 +60,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
@@ -136,7 +136,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
@@ -171,7 +171,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
@@ -202,7 +202,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: scripts/package-lock.json
 
@@ -224,7 +224,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Install types dependencies
         run: npm install
@@ -264,7 +264,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -314,7 +314,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Validate OpenAPI spec is well-formed JSON
         run: |
@@ -341,7 +341,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
@@ -371,7 +371,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - name: Check env docs are in sync
         run: node scripts/check-env-docs.mjs
 
@@ -387,7 +387,7 @@ jobs:
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - name: Validate the issue backlog
         run: node scripts/publish-issues.mjs --validate-only
       - name: Confirm the backlog index is current
