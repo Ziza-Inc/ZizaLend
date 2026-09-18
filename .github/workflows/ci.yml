@@ -375,6 +375,24 @@ jobs:
       - name: Check env docs are in sync
         run: node scripts/check-env-docs.mjs
 
+  issue-backlog:
+    # The backlog is reviewed like code, so a malformed draft has to fail here rather
+    # than at publish time. `--validate-only` parses every draft and refuses a missing
+    # frontmatter field, a duplicate backlog id, and a duplicate title. It needs no
+    # token, because it never talks to the API.
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate the issue backlog
+        run: node scripts/publish-issues.mjs --validate-only
+      - name: Confirm the backlog index is current
+        run: node scripts/publish-issues.mjs --validate-only --check-index
+
   contracts:
     runs-on: ubuntu-latest
     steps:
