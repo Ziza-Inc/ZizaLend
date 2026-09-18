@@ -674,6 +674,7 @@ fn test_pool_stats_reflect_funds_allocated_and_returned() {
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
     pool_client.set_withdrawal_cooldown(&0);
+    pool_client.set_loan_manager(&Address::generate(&env));
 
     let provider = Address::generate(&env);
     let borrower = Address::generate(&env);
@@ -686,14 +687,18 @@ fn test_pool_stats_reflect_funds_allocated_and_returned() {
     assert_eq!(initial_stats.pool_token_balance, 5_000);
     assert_eq!(initial_stats.utilization_bps, 0);
 
-    token_client.transfer(&pool_id, &borrower, &2_000);
+    // Simulate a loan the way the protocol does: the pool disburses, which is what
+    // records the principal as outstanding.
+    pool_client.disburse(&token_id, &borrower, &2_000);
     let allocated_stats = pool_client.get_pool_stats(&token_id);
     assert_eq!(allocated_stats.pool_token_balance, 3_000);
     assert_eq!(allocated_stats.total_deposits, 5_000);
     assert_eq!(allocated_stats.utilization_bps, 4_000);
 
+    // Borrower repays 2,000 principal + 200 interest.
     stellar_asset_client.mint(&borrower, &200);
     token_client.transfer(&borrower, &pool_id, &2_200);
+    pool_client.settle_outstanding(&token_id, &2_000);
 
     let returned_stats = pool_client.get_pool_stats(&token_id);
     assert_eq!(returned_stats.pool_token_balance, 5_200);
@@ -1007,6 +1012,7 @@ fn test_pool_stats() {
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&token_admin);
     pool_client.set_withdrawal_cooldown(&0);
+    pool_client.set_loan_manager(&Address::generate(&env));
 
     let provider1 = Address::generate(&env);
     let provider2 = Address::generate(&env);
@@ -1044,9 +1050,9 @@ fn test_pool_stats() {
     assert_eq!(stats.total_yield_distributed, 0);
     assert_eq!(pool_client.get_depositor_count(&token_id), 2);
 
-    // Simulate a loan (1000 tokens leave pool).
+    // Simulate a loan the way the protocol does (1000 tokens leave the pool).
     let token_client = TokenClient::new(&env, &token_id);
-    token_client.transfer(&pool_id, &borrower, &1000);
+    pool_client.disburse(&token_id, &borrower, &1000);
     let stats = pool_client.get_pool_stats(&token_id);
     assert_eq!(stats.total_deposits, 4000);
     assert_eq!(stats.pool_token_balance, 3000);
@@ -1055,6 +1061,7 @@ fn test_pool_stats() {
 
     // Return borrowed tokens before withdrawals so providers get full value.
     token_client.transfer(&borrower, &pool_id, &1000);
+    pool_client.settle_outstanding(&token_id, &1000);
 
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
@@ -1327,27 +1334,90 @@ fn test_withdrawal_with_utilization() {
     let pool_client = LendingPoolClient::new(&env, &pool_id);
     pool_client.initialize(&admin);
     pool_client.set_withdrawal_cooldown(&0);
+    pool_client.set_loan_manager(&Address::generate(&env));
 
     let provider = Address::generate(&env);
     stellar.mint(&provider, &1000);
     pool_client.deposit(&provider, &token_id, &1000);
 
-    // Simulate 80% utilization (800 tokens borrowed)
+    // Simulate 80% utilization the way the protocol does: the pool disburses, which
+    // is what records the principal as outstanding.
     let borrower = Address::generate(&env);
-    token_client.transfer(&pool_id, &borrower, &800);
+    pool_client.disburse(&token_id, &borrower, &800);
     assert_eq!(token_client.balance(&pool_id), 200);
 
-    // Stats should show 80% utilization
+    // Stats should show 80% utilization.
     let stats = pool_client.get_pool_stats(&token_id);
     assert_eq!(stats.utilization_bps, 8000);
 
-    // If user tries to withdraw 500 shares, they only get 100 tokens
-    // because share value is based on liquid balance.
-    // assets = shares * pool_balance / total_shares = 500 * 200 / 1000 = 100
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 1);
-    pool_client.withdraw(&provider, &token_id, &500);
-    assert_eq!(token_client.balance(&provider), 100);
+
+    // LP shares are a claim on total assets (idle + outstanding), so 500 shares are
+    // worth 500. But only 200 is idle, and deployed principal cannot be paid out,
+    // so the withdrawal must be refused rather than silently discounted -- the
+    // previous expectation of 100 came from pricing shares on idle balance alone.
+    let refused = pool_client.try_withdraw(&provider, &token_id, &500);
+    // A contract-level rejection surfaces as Err(Ok(PoolError)), not Err(_).
+    assert!(
+        matches!(refused, Err(Ok(_))),
+        "withdrawing more than the idle balance must be refused"
+    );
+    assert_eq!(token_client.balance(&provider), 0);
+
+    // Redeeming within idle liquidity succeeds at the full share price.
+    pool_client.withdraw(&provider, &token_id, &200);
+    assert_eq!(token_client.balance(&provider), 200);
+    assert_eq!(token_client.balance(&pool_id), 0);
+}
+
+/// Utilisation is `outstanding / (idle + outstanding)`, read from the authoritative
+/// outstanding counter.
+///
+/// The previous formula inferred borrowing from `total_deposits - idle`, which
+/// double-counts accrued yield as borrowed: interest paid into the pool looks
+/// exactly like a repayment of principal, so an entirely idle pool reported a
+/// non-zero utilisation and a levered pool under-reported its true exposure.
+#[test]
+fn test_utilization_is_derived_from_outstanding_not_from_principal_basis() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, stellar, _) = create_token_contract(&env, &admin);
+
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.set_withdrawal_cooldown(&0);
+    pool_client.set_loan_manager(&Address::generate(&env));
+
+    let provider = Address::generate(&env);
+    stellar.mint(&provider, &1000);
+    pool_client.deposit(&provider, &token_id, &1000);
+
+    // 100 of interest accrues into the pool. Nothing is out on loan, so utilisation
+    // must stay at zero: idle balance exceeding the principal basis is yield, not
+    // borrowing.
+    stellar.mint(&pool_id, &100);
+    assert_eq!(
+        pool_client.get_pool_stats(&token_id).utilization_bps,
+        0,
+        "idle yield must not be reported as borrowed capital"
+    );
+
+    // Now disburse 500. Total assets are 1100 (600 idle + 500 outstanding), so true
+    // utilisation is 500/1100 = 4545 bps. The old formula compared the 600 idle
+    // balance against the 1000 principal basis and wrongly reported 4000.
+    let borrower = Address::generate(&env);
+    pool_client.disburse(&token_id, &borrower, &500);
+
+    let stats = pool_client.get_pool_stats(&token_id);
+    assert_eq!(stats.total_deposits, 1000, "yield must not alter the basis");
+    assert_eq!(
+        stats.utilization_bps, 4545,
+        "utilisation must be measured against total assets, not the principal basis"
+    );
 }
 
 #[test]

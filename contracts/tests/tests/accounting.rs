@@ -238,6 +238,67 @@ fn liquidity_check_compares_against_idle_balance_only() {
     );
 }
 
+/// `TotalDeposits` is a principal cost basis, so yield must neither shrink it nor
+/// make an idle pool look lent out, and the `MaxPoolSize` cap must bind against
+/// real principal rather than against a drifted figure.
+///
+/// The bug this pins: `redeem_shares` reduced the basis by `assets_to_return`,
+/// which includes accrued yield. Every redemption therefore wrote off yield from
+/// tracked principal, permanently understating the basis and effectively raising
+/// the cap.
+#[test]
+fn yield_does_not_shrink_the_principal_basis_or_breach_the_cap() {
+    let f = setup(0);
+    let pool = LendingPoolClient::new(&f.env, &f.pool_id);
+    let stellar = StellarAssetClient::new(&f.env, &f.token_id);
+
+    let a = Address::generate(&f.env);
+    let b = Address::generate(&f.env);
+
+    pool.set_max_pool_size(&f.token_id, &600);
+
+    stellar.mint(&a, &300);
+    stellar.mint(&b, &300);
+    pool.deposit(&a, &f.token_id, &300);
+    pool.deposit(&b, &f.token_id, &300);
+    assert_eq!(pool.get_total_deposits(&f.token_id), 600);
+
+    // 60 units of yield arrive. Utilisation must stay at zero -- nothing is lent
+    // out, and yield sitting in the pool is not deployed capital.
+    stellar.mint(&f.pool_id, &60);
+    let stats = pool.get_pool_stats(&f.token_id);
+    assert_eq!(
+        stats.utilization_bps, 0,
+        "idle yield must not read as borrowing"
+    );
+    assert_eq!(
+        stats.total_deposits, 600,
+        "yield must not alter the principal basis"
+    );
+
+    // A withdraws all 300 shares. The share price is 660/600 = 1.1, so they receive
+    // 330 -- but the basis must fall by the 300 of principal they contributed, not
+    // by the 330 of assets they were paid.
+    f.env
+        .ledger()
+        .set_sequence_number(f.env.ledger().sequence() + 10);
+    pool.withdraw(&a, &f.token_id, &300);
+    assert_eq!(
+        pool.get_total_deposits(&f.token_id),
+        300,
+        "the basis must fall by principal redeemed, not by assets paid out"
+    );
+
+    // The cap must still bind against real principal. The old behaviour would have
+    // left the basis at 270 (600 - 330) and let a further 330 in, breaching the cap.
+    let too_much = pool.try_deposit(&b, &f.token_id, &330);
+    // A contract-level rejection surfaces as Err(Ok(PoolError)), not Err(_).
+    assert!(
+        matches!(too_much, Err(Ok(_))),
+        "the cap must reject a deposit that would exceed it on a principal basis"
+    );
+}
+
 /// The truncation remainder from a floored redemption stays in the pool and
 /// accrues to the remaining holders. It is deliberately never extracted.
 ///

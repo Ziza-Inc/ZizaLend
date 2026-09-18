@@ -33,6 +33,9 @@
 //! 4. Subsequent depositors cannot dilute existing holders.
 //! 5. The share price is monotonic non-decreasing (yield can only increase it).
 //! 6. `TotalDeposits` can never exceed `MaxPoolSize` when the cap is set.
+//!    `TotalDeposits` is a principal *cost basis*, not an asset value: it excludes
+//!    accrued yield, and a redemption reduces it by the pro-rata principal of the
+//!    burned shares rather than by the assets paid out.
 //! 7. Withdrawals can only reduce the idle balance — total_outstanding is
 //!    only modified by `adjust_outstanding` (called by LoanManager).
 use soroban_sdk::token::Client as TokenClient;
@@ -117,14 +120,17 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoolStats {
+    /// Principal contributed by lenders, net of principal withdrawn. This is a
+    /// cost basis rather than an asset value: it excludes accrued yield, and a
+    /// redemption reduces it by the pro-rata principal of the burned shares.
     pub total_deposits: i128,
     pub total_shares: i128,
     pub pool_token_balance: i128,
     pub depositor_count: u32,
     pub total_yield_distributed: i128,
-    /// Fraction of tracked principal currently out on loan, in basis points.
-    /// Only positive when active loans have reduced pool_balance below
-    /// total_deposits.
+    /// Fraction of total pool assets (`idle + outstanding`) currently out on loan,
+    /// in basis points. Zero whenever nothing is deployed, regardless of how much
+    /// yield has accumulated in the pool.
     pub utilization_bps: u32,
 }
 
@@ -332,6 +338,25 @@ impl LendingPool {
         }
     }
 
+    /// Principal attributable to `shares` out of `total_shares`.
+    ///
+    /// Used to reduce the tracked principal basis when shares are burned.
+    /// `TotalDeposits` is a cost basis, so it must fall by the principal the burned
+    /// shares represent — not by the assets they redeem for. Subtracting the asset
+    /// value would also subtract accrued yield, so every yield distribution would
+    /// silently shrink tracked principal, and with it the `MaxPoolSize` ceiling and
+    /// the utilisation denominator.
+    fn principal_share(total_deposits: i128, shares: i128, total_shares: i128) -> i128 {
+        if total_shares <= 0 || total_deposits <= 0 {
+            return 0;
+        }
+        shares
+            .checked_mul(total_deposits)
+            .and_then(|v| v.checked_div(total_shares))
+            .expect("principal share overflow")
+            .min(total_deposits)
+    }
+
     fn assert_withdrawal_cooldown_elapsed(env: &Env, provider: &Address, token: &Address) {
         let cooldown = Self::withdrawal_cooldown(env);
         if cooldown == 0 {
@@ -413,7 +438,14 @@ impl LendingPool {
             .instance()
             .set(&DataKey::TotalShares(token.clone()), &new_total_shares);
 
-        let new_total_deposits = Self::total_deposits(env, token).saturating_sub(assets_to_return);
+        // Reduce the principal basis by the pro-rata principal of the burned
+        // shares. This previously subtracted `assets_to_return`, which includes
+        // accrued yield, so each redemption also wrote off yield from the tracked
+        // principal and steadily understated the pool's cost basis.
+        let cur_total_deposits = Self::total_deposits(env, token);
+        let principal_redeemed =
+            Self::principal_share(cur_total_deposits, shares, cur_total_shares);
+        let new_total_deposits = cur_total_deposits.saturating_sub(principal_redeemed);
         env.storage()
             .instance()
             .set(&DataKey::TotalDeposits(token.clone()), &new_total_deposits);
@@ -831,10 +863,16 @@ impl LendingPool {
         let total_shares = Self::total_shares(&env, &token);
         let pool_token_balance = Self::read_pool_balance(&env, &token);
 
-        // Utilisation: portion of tracked principal currently out on loan.
-        let utilization_bps = if total_deposits > 0 && pool_token_balance < total_deposits {
-            let borrowed = total_deposits - pool_token_balance;
-            ((borrowed * 10_000) / total_deposits) as u32
+        // Utilisation: fraction of total pool assets currently out on loan.
+        //
+        // Derived from the authoritative outstanding counter rather than from
+        // `total_deposits - pool_token_balance`. That older form treated every
+        // token held above the principal basis as borrowed, so a repayment of
+        // interest made an entirely idle pool report a non-zero utilisation.
+        let outstanding = Self::read_total_outstanding(&env, &token);
+        let total_assets = pool_token_balance.saturating_add(outstanding);
+        let utilization_bps = if total_assets > 0 {
+            (outstanding.saturating_mul(10_000) / total_assets) as u32
         } else {
             0
         };
