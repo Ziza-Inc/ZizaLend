@@ -521,12 +521,14 @@ async function main() {
         const {
             maxLoanAmount,
             maxPoolSize,
+            minRepaymentAmount,
             minScore,
             interestRateBps,
             defaultTermLedgers,
         } = config.parameters as {
             maxLoanAmount?: string;
             maxPoolSize?: string;
+            minRepaymentAmount?: string;
             minScore?: number;
             interestRateBps?: number;
             defaultTermLedgers?: number;
@@ -612,6 +614,27 @@ async function main() {
             );
         }
 
+        // The floor below which a *partial* repayment is treated as rounding dust.
+        //
+        // Interest accrues continuously, so a borrower who repays the exact debt they
+        // were quoted leaves a residual of roughly one ledger of interest behind. With
+        // the default floor of zero that residual is a real balance and the loan never
+        // reaches `Repaid`; with a floor above one ledger of interest the contract
+        // forgives it and closes the loan, which is the behaviour a borrower expects.
+        // Left at zero it also allows dust-sized partial repayments that move no
+        // principal and only add ledger writes.
+        if (minRepaymentAmount !== undefined) {
+            await applyI128(
+                `LoanManager.set_min_repayment_amount(${minRepaymentAmount})`,
+                managerContractId,
+                'get_min_repayment_amount',
+                [],
+                'set_min_repayment_amount',
+                minRepaymentAmount,
+                (encoded) => [encoded],
+            );
+        }
+
         if (minScore !== undefined) {
             await applyU32(
                 `LoanManager.set_min_score(${minScore})`,
@@ -670,6 +693,39 @@ async function main() {
         `NFT_GOVERNANCE_CONTRACT_ID=${nftGovContractId}`,
         `POOL_TOKEN_ADDRESS=${config.token}`,
     ].join('\n');
+
+    // A committed, secret-free record of the deployment.
+    //
+    // The .env files written below are gitignored, so without this the addresses of the
+    // live Testnet deployment exist only on the machine that ran the deploy. The smoke
+    // test reads this file, and so should anyone verifying that the deployment documented
+    // in the README is the one actually running.
+    const manifestPath = path.join(__dirname, 'deployments', `${network}.json`);
+    await fs.ensureDir(path.dirname(manifestPath));
+    await fs.writeJson(
+        manifestPath,
+        {
+            network,
+            rpcUrl: config.rpcUrl,
+            networkPassphrase: passphrase,
+            admin: adminAddr,
+            token: config.token,
+            deployedAt: new Date().toISOString(),
+            sourceRevision: process.env.GITHUB_SHA ?? null,
+            contracts: {
+                remittance_nft: nftContractId,
+                lending_pool: poolContractId,
+                loan_manager: managerContractId,
+                governance_loan_manager: managerGovContractId,
+                governance_lending_pool: poolGovContractId,
+                governance_remittance_nft: nftGovContractId,
+            },
+        },
+        { spaces: 4 },
+    );
+    console.log(
+        `  manifest written to ${path.relative(process.cwd(), manifestPath)}`,
+    );
 
     await fs.appendFile(
         path.join(__dirname, '../frontend/.env.local'),

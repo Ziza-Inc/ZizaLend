@@ -23,7 +23,8 @@
       "maxPoolSize": "10000000000",
       "minScore": 500,
       "interestRateBps": 1200,
-      "defaultTermLedgers": 17280
+      "defaultTermLedgers": 17280,
+      "minRepaymentAmount": "10000"
     }
   }
 }
