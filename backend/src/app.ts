@@ -204,6 +204,35 @@ app.get('/version', (_req: Request, res: Response) => {
   });
 });
 
+/**
+ * GET /ready
+ *
+ * Readiness probe, deliberately separate from `/health` (liveness). An
+ * orchestrator should stop routing traffic to an instance whose database or
+ * cache is unavailable without restart-looping it, which is exactly what a
+ * liveness probe would do. Returns 200 when dependencies are usable and 503
+ * when the instance should be drained.
+ */
+app.get(
+  '/ready',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const [dbResult, redisResult] = await Promise.allSettled([
+      pool.query('SELECT 1'),
+      cacheService.ping(),
+    ]);
+
+    const dbReady = dbResult.status === 'fulfilled';
+    const redisReady = redisResult.status === 'fulfilled' && redisResult.value === 'ok';
+    const ready = dbReady && redisReady;
+
+    res.status(ready ? 200 : 503).json({
+      status: ready ? 'ready' : 'not_ready',
+      checks: { database: dbReady, redis: redisReady },
+      timestamp: Date.now(),
+    });
+  }),
+);
+
 app.get(
   '/health',
   asyncHandler(async (_req: Request, res: Response) => {
