@@ -1,0 +1,134 @@
+# Dependabot configuration.
+#
+# **Why this exists.** `.github/workflows/dependency-review.yml` reviews the dependencies a
+# pull request introduces, but nothing in the repository proposed an update in the first
+# place. Those are two halves of the same job and only one of them was here, so a vulnerable
+# or outdated dependency would have sat untouched until somebody happened to look at it.
+# This adds the missing half.
+#
+# **Why the commit prefix is not cosmetic.** `commitlint.yml` is a required status check, and
+# it lints both the commits on a pull request and the pull request *title* against
+# `commitlint.config.js`. Dependabot's default message is `Bump <pkg> from <a> to <b>`, which
+# carries no Conventional Commits type, so every pull request it opened would have failed
+# that check and been unmergeable. The prefix puts a valid type and scope in front of the
+# default text, and `deps` / `deps-dev` are both in the `scope-enum`, so generated messages
+# are held to exactly the same standard as a human's.
+#
+# **Why updates are grouped.** Seven ecosystems updating on the same morning produces a
+# trickle of single-dependency pull requests, and a trickle is what people stop reading —
+# which is how a real security bump gets merged unexamined in the middle of it. Patch and
+# minor updates are therefore grouped per ecosystem: one reviewable pull request per
+# ecosystem per week. Major updates are deliberately left out of the groups so each arrives
+# on its own, because a major is where the breaking change is and it is easier to bisect
+# alone than as one item in a batch.
+#
+# Security updates are never grouped and never wait for the schedule; Dependabot raises
+# those as soon as the advisory lands, which is the behaviour the review gate expects.
+
+version: 2
+
+updates:
+  # Root npm workspace. Covers `packages/types` and `packages/sdk` through the `workspaces`
+  # field in the root `package.json`, so there is no separate entry for either.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    labels: [dependencies]
+    groups:
+      root-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/backend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    labels: [dependencies, backend]
+    groups:
+      backend-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    labels: [dependencies, frontend]
+    groups:
+      frontend-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/scripts"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    labels: [dependencies]
+    groups:
+      scripts-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  # The `contracts` Cargo workspace. `soroban-sdk` is the dependency that matters here: it is
+  # the contract ABI, and the toolchain is pinned in `rust-toolchain.toml`, so an SDK bump is
+  # a change worth reading rather than waving through.
+  - package-ecosystem: cargo
+    directory: "/contracts"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies, contracts, rust]
+    groups:
+      contracts-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  # `fuzz` is excluded from the `contracts` workspace and keeps its own `Cargo.lock`, so it is
+  # a separate root as far as Dependabot is concerned and needs its own entry.
+  - package-ecosystem: cargo
+    directory: "/contracts/fuzz"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies, contracts, rust]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    labels: [dependencies, github_actions]
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
