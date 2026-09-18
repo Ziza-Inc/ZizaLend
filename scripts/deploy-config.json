@@ -17,6 +17,13 @@
       "multisig_governance": {
         "wasm": "../contracts/target/wasm32v1-none/release/multisig_governance.wasm"
       }
+    },
+    "parameters": {
+      "maxLoanAmount": "1000000000",
+      "maxPoolSize": "10000000000",
+      "minScore": 500,
+      "interestRateBps": 1200,
+      "defaultTermLedgers": 17280
     }
   }
 }

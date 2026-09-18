@@ -28,14 +28,16 @@ export const i128 = (value: bigint | number | string): xdr.ScVal =>
     nativeToScVal(BigInt(value), { type: 'i128' });
 
 /** `u32` — ledger counts, basis points, loan ids, and score thresholds. */
-export const u32 = (value: number): xdr.ScVal => nativeToScVal(value, { type: 'u32' });
+export const u32 = (value: number): xdr.ScVal =>
+    nativeToScVal(value, { type: 'u32' });
 
 /** `u64` — unix-second timestamps. */
 export const u64 = (value: bigint | number | string): xdr.ScVal =>
     nativeToScVal(BigInt(value), { type: 'u64' });
 
 /** A Stellar account (`G…`) or contract (`C…`) address, as `ScVal::Address`. */
-export const address = (value: string): xdr.ScVal => Address.fromString(value).toScVal();
+export const address = (value: string): xdr.ScVal =>
+    Address.fromString(value).toScVal();
 
 /** `Vec<Address>`, e.g. a governance signer set. */
 export const addressVec = (values: string[]): xdr.ScVal =>
@@ -49,7 +51,10 @@ export const addressVec = (values: string[]): xdr.ScVal =>
  */
 export function toScVal(arg: unknown): xdr.ScVal {
     if (arg instanceof xdr.ScVal) return arg;
-    if (typeof arg === 'string' && (StrKey.isValidContract(arg) || StrKey.isValidEd25519PublicKey(arg))) {
+    if (
+        typeof arg === 'string' &&
+        (StrKey.isValidContract(arg) || StrKey.isValidEd25519PublicKey(arg))
+    ) {
         return address(arg);
     }
     return nativeToScVal(arg);
@@ -58,6 +63,24 @@ export function toScVal(arg: unknown): xdr.ScVal {
 /** Encode a positional argument list. */
 export const toScVals = (args: unknown[]): xdr.ScVal[] => args.map(toScVal);
 
+/** Read a `bool` back out of a returned `ScVal`. */
+export function scValToBool(value: xdr.ScVal): boolean {
+    return value.switch().name === 'scvBool' && value.b();
+}
+
+/** Read a `u32` back out of a returned `ScVal`. */
+export function scValToU32(value: xdr.ScVal): number {
+    return value.u32();
+}
+
+/** Read an `i128` back out of a returned `ScVal`. */
+export function scValToI128(value: xdr.ScVal): bigint {
+    const parts = value.i128();
+    return (
+        (BigInt(parts.hi().toString()) << 64n) | BigInt(parts.lo().toString())
+    );
+}
+
 /** Read an address back out of a returned `ScVal`, or `undefined` if it is not one. */
 export function scValToAddress(value: xdr.ScVal): string | undefined {
     if (value.switch().name !== 'scvAddress') return undefined;
@@ -65,5 +88,7 @@ export function scValToAddress(value: xdr.ScVal): string | undefined {
     if (scAddress.switch().name !== 'scAddressTypeContract') {
         return Address.fromScAddress(scAddress).toString();
     }
-    return StrKey.encodeContract(Buffer.from(scAddress.contractId() as unknown as Uint8Array));
+    return StrKey.encodeContract(
+        Buffer.from(scAddress.contractId() as unknown as Uint8Array),
+    );
 }
