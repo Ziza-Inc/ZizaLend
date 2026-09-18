@@ -30,6 +30,15 @@ const KEY_PROPOSAL_COUNT: Symbol = symbol_short!("COUNT");
 const REPROPOSAL_COOLDOWN_SECONDS: u64 = 3600; // 1 hour
 const CURRENT_VERSION: u32 = 1;
 
+/// The longest timelock a proposal may carry.
+///
+/// `finalize_admin_transfer` requires `now < proposed_at + PROPOSAL_TTL_SECONDS`, so a
+/// timelock at or beyond that instant is unsatisfiable: the proposal expires before it
+/// ever becomes executable and can only be cancelled. The window is held at one
+/// `MIN_TIMELOCK_SECONDS`, so a proposal is never accepted with only seconds of usable
+/// life either.
+const MAX_TIMELOCK_SECONDS: u64 = PROPOSAL_TTL_SECONDS - MIN_TIMELOCK_SECONDS;
+
 /// Instance-storage TTL management.
 ///
 /// Soroban archives a contract's instance entry once its TTL lapses. Every
@@ -65,6 +74,7 @@ pub enum GovernanceError {
     ProposalIdMismatch = 4018,
     ProposalNotActive = 4019,
     DuplicateSigner = 4020,
+    DelayTooLong = 4021,
 }
 
 /// Status of a pending admin transfer proposal.
@@ -259,11 +269,10 @@ impl GovernanceContract {
         if signers.len() > MAX_SIGNERS {
             return Err(GovernanceError::TooManySigners);
         }
-        // Ensure signer list contains unique addresses. Duplicates would allow
-        // the same key to be listed multiple times and potentially bypass
-        // the multi-signer threshold semantics. We build an explicit
-        // deduplicated `unique_signers` Vec that preserves order but rejects
-        // input lists containing duplicates.
+        // Reject signer lists containing the same address more than once. A repeated key
+        // would inflate the apparent size of the signer set -- and so the highest
+        // satisfiable threshold -- without adding an approver. The list below is the one
+        // that gets stored, so it is also what the threshold is bounded against.
         let mut unique_signers: Vec<Address> = Vec::new(&env);
         for s in signers.iter() {
             if unique_signers.iter().any(|x| x == s) {
@@ -276,11 +285,20 @@ impl GovernanceContract {
         if threshold < 1 {
             return Err(GovernanceError::ThresholdTooLow);
         }
-        if threshold > signers.len() {
+        // Bounded against the list that is actually stored, so the reachability of the
+        // threshold provably matches the signer set the approvals are checked against.
+        if threshold > unique_signers.len() {
             return Err(GovernanceError::ThresholdExceedsSignerCount);
         }
         if delay_seconds < MIN_TIMELOCK_SECONDS {
             return Err(GovernanceError::DelayTooShort);
+        }
+        // A timelock at or past the proposal's own expiry can never be executed. Accepting
+        // one would be worse than useless: while it sits Active it blocks proposing a
+        // replacement (`TransferAlreadyPending`), so recovering needs an explicit cancel
+        // plus the reproposal cooldown -- for a hand-off that could never happen anyway.
+        if delay_seconds > MAX_TIMELOCK_SECONDS {
+            return Err(GovernanceError::DelayTooLong);
         }
 
         let now = env.ledger().timestamp();
@@ -314,7 +332,9 @@ impl GovernanceContract {
             (symbol_short!("GovProp"), admin.clone()),
             AdminTransferProposedEvent {
                 proposed_admin,
-                signers,
+                // The stored list, so the event cannot describe a signer set other than
+                // the one the proposal will actually enforce.
+                signers: unique_signers,
                 threshold,
                 executable_after,
                 proposed_by: admin,

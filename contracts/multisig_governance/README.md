@@ -25,7 +25,11 @@ A multi-signature timelock governance contract for admin transfer of any ZizaLen
 ## Key Invariants
 
 1. **Timelock ≥ 24h**: `delay_seconds` must be ≥ `MIN_TIMELOCK_SECONDS` (86,400).
-2. **Threshold ≤ signers**: Threshold cannot exceed the number of signers.
+2. **Timelock ≤ 6 days**: `delay_seconds` must be ≤ `MAX_TIMELOCK_SECONDS` (518,400 =
+   the 7-day TTL minus the 24 h minimum). A timelock at or past the proposal's own expiry
+   can never be executed, so it is refused at proposal time instead of occupying the
+   single proposal slot until an operator cancels it.
+3. **Threshold ≤ signers**: Threshold cannot exceed the number of signers.
 3. **Threshold ≥ 1**: Empty thresholds are rejected.
 4. **Max 20 signers**: Prevents storage/gas abuse.
 5. **No duplicate signers**: Explicitly enforced at proposal time.

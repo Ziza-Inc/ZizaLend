@@ -187,7 +187,7 @@ the target ZizaLend contract.  Its cross-contract `invoke_contract` call in
 | Function | Required Authorizer | Delegable? | Mutates | Emits | Gates | Reentrancy |
 | --- | --- | --- | --- | --- | --- | --- |
 | `initialize(admin, target)` | (first call only) | No | `ADMIN`, `TARGET`, `VERSION`, `COUNT=0` | (init) | Whole contract | n/a |
-| `propose_admin_transfer(proposed, signers, threshold, delay)` | current `ADMIN` | No | `PENDING` if absent; bumps `COUNT`; bumps `LAST_CANCELLED_AT` cooldown | `GovProp` | Future admin transfer lifecycle | n/a |
+| `propose_admin_transfer(proposed, signers, threshold, delay)` | current `ADMIN` | No | `PENDING` if absent; bumps `COUNT`; bumps `LAST_CANCELLED_AT` cooldown | `GovProp` (publishes the stored signer list) | Future admin transfer lifecycle | Rejects empty/duplicate signer lists, `threshold` outside `1..=signers`, `delay` outside `MIN_TIMELOCK_SECONDS..=MAX_TIMELOCK_SECONDS` (a longer timelock could never be executed before the proposal expires), and any proposal while one is `Active` |
 | `approve_transfer(signer)` | `signer` (must be in `signers`) | No | `PENDING.approvals[signer] = true` (idempotent) | `GovAppr` | Quorum progress | n/a |
 | `finalize_admin_transfer(caller)` | `caller` (pub; anyone once both invariants hold) | No | Cross-contract `target.set_admin(new_admin)`; then commit `KEY_ADMIN`, `KEY_PENDING` cleared, `LAST_CANCELLED_AT` updated | `GovFin` | Hands admin | **Cross-contract**: invokes `set_admin` on the target.  Any non-idempotent behavior on `set_admin` would be headroom; `set_admin` here overwrites cleanly. |
 | `cancel_admin_transfer` | current `ADMIN` | No | `PENDING.status = Cancelled`, bumps `LAST_CANCELLED_AT` | `GovCncl` | Re-proposal cooldown for 1 hour | n/a |

@@ -157,6 +157,64 @@ fn propose_rejects_short_delay() {
     assert_eq!(result, Err(Ok(GovernanceError::DelayTooShort)));
 }
 
+/// A timelock that outlives the proposal can never be executed, so it must be refused.
+///
+/// `finalize_admin_transfer` requires `now < proposed_at + PROPOSAL_TTL_SECONDS` while the
+/// timelock requires `now >= proposed_at + delay_seconds`. With no upper bound on the
+/// delay those two are mutually exclusive past the expiry, so the proposal is dead on
+/// arrival -- and because an Active proposal blocks `propose_admin_transfer` with
+/// `TransferAlreadyPending`, it wedges the admin hand-off until it is explicitly
+/// cancelled and the reproposal cooldown has passed.
+#[test]
+fn propose_rejects_a_timelock_longer_than_the_proposal_expiry() {
+    let (env, client, _, _) = setup();
+    let signers = Vec::from_slice(&env, &[Address::generate(&env)]);
+    set_ts(&env, 1000);
+
+    // Longer than the proposal's own lifetime: unsatisfiable by construction.
+    let result = client.try_propose_admin_transfer(
+        &Address::generate(&env),
+        &signers,
+        &1,
+        &(MAX_TIMELOCK_SECONDS + 1),
+    );
+    assert_eq!(result, Err(Ok(GovernanceError::DelayTooLong)));
+
+    // And no longer occupies the only proposal slot, so a workable hand-off can follow.
+    client.propose_admin_transfer(
+        &Address::generate(&env),
+        &signers,
+        &1,
+        &MIN_TIMELOCK_SECONDS,
+    );
+}
+
+/// The longest accepted timelock must still produce a finalizable proposal.
+///
+/// The bound is only useful if the delay it allows leaves a real execution window, so
+/// this drives the boundary case all the way through approval and finalization.
+#[test]
+fn maximum_accepted_timelock_is_still_finalizable() {
+    let (env, client, admin, target) = setup();
+    let proposed = Address::generate(&env);
+    let s = Address::generate(&env);
+    let signers = Vec::from_slice(&env, core::slice::from_ref(&s));
+
+    set_ts(&env, 1000);
+    client.propose_admin_transfer(&proposed, &signers, &1, &MAX_TIMELOCK_SECONDS);
+    client.approve_transfer(&s);
+
+    // Past the timelock, and still inside the proposal's lifetime.
+    set_ts(&env, 1000 + MAX_TIMELOCK_SECONDS);
+
+    client.finalize_admin_transfer(&admin);
+
+    assert_eq!(client.get_current_admin(), proposed);
+    assert!(!client.has_pending_transfer());
+    let target_client = MockTargetClient::new(&env, &target);
+    assert_eq!(target_client.get_admin(), proposed);
+}
+
 #[test]
 fn propose_rejects_threshold_exceeding_signers() {
     let (env, client, _, _) = setup();
