@@ -3,6 +3,16 @@ import type { Request } from 'express';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
+/**
+ * Hard ceiling for `offset`-based pagination.
+ *
+ * `OFFSET n` forces PostgreSQL to walk and discard n rows, so an attacker can
+ * turn a cheap list endpoint into a full-table scan by requesting
+ * `?offset=100000000`. Capping the offset bounds worst-case query cost.
+ * Clients that need to page deeper should use the cursor endpoints.
+ */
+export const MAX_OFFSET = 10_000;
+
 export interface PaginationParams {
   limit: number;
   offset: number;
@@ -28,7 +38,7 @@ export interface SortConfig {
 
 export function parseQueryParams(req: Request): PaginationParams {
   const limit = parsePositiveInteger(req.query.limit, DEFAULT_LIMIT, MAX_LIMIT);
-  const offset = parsePositiveInteger(req.query.offset, 0);
+  const offset = parsePositiveInteger(req.query.offset, 0, MAX_OFFSET);
   const sort =
     typeof req.query.sort === 'string' && req.query.sort.trim().length > 0
       ? req.query.sort.trim()
