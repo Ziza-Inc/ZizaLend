@@ -82,6 +82,10 @@ fuzz_target!(|data: FuzzAction| {
     // Authorize LoanManager to update scores in NFT contract
     nft_client.authorize_minter(&loan_manager_id);
 
+    // The NFT moves a borrower's score only at the request of its single
+    // configured recorder, so the manager must be registered as one.
+    nft_client.set_score_recorder(&loan_manager_id);
+
     match data {
         FuzzAction::RequestLoan {
             user_id,

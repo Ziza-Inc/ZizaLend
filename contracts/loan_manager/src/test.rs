@@ -54,6 +54,10 @@ fn setup_test<'a>(
     // Authorize LoanManager on NFT contract before initialization
     nft_client.authorize_minter(&loan_manager_id);
 
+    // The NFT moves a borrower's score only at the request of its single
+    // configured recorder, so the manager must be registered as one.
+    nft_client.set_score_recorder(&loan_manager_id);
+
     // 5. Initialize the Loan Manager with the NFT contract, lending pool, token, and admin
     loan_manager_client.initialize(&nft_contract_id, &pool_contract_id, &token_id, &admin);
 

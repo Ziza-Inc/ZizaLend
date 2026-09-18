@@ -6,7 +6,8 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 
 - **Score-based reputation**: Each NFT stores a credit score (0–850) that gates loan eligibility in the LoanManager.
 - **History tracking**: Score changes are recorded with ledger timestamps, capped at the 50 most recent entries.
-- **Authorized minters**: Only the admin and explicitly authorised contracts (e.g., LoanManager) can mint/update scores.
+- **Authorized minters**: Only the admin and explicitly authorised contracts (max 32) can mint NFTs.
+- **Single score recorder**: Scores are moved on the routine path only by one admin-configured address (normally LoanManager), the one contract that observes a repayment happening. `apply_score_delta`, which applies no economic rule, is admin-only.
 - **Seized flag**: Marks a borrower's collateral as seized, blocking new loan requests but allowing repayment of existing debt.
 - **Auto-burn on repeated default**: After `burn_threshold` defaults, the NFT is automatically burned.
 - **Admin remint**: Burned accounts can be recovered only via admin-gated `admin_remint()` with a prior `approve_remint()`.
@@ -22,6 +23,7 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 6. **Transfer moves all state**: Metadata, score history, default count, and seized flag all move atomically to the destination.
 7. **Minter cap**: Maximum 32 authorised minters.
 8. **Metadata URIs are allowlisted**: only `ipfs://` or `https://` URIs, at most `MAX_METADATA_URI_LEN` (256) bytes, are stored. Enforced on `mint`, `admin_remint`, and `update_metadata_uri`, so a stored URI is always resolvable and never an unbounded storage payload.
+9. **Score provenance**: `update_score` and `decrease_score` accept only the configured `ScoreRecorder` (or the admin). Being an authorised minter grants no ability to write a score, and `apply_score_delta` is admin-only. Without a configured recorder both routine paths reject every non-admin caller rather than accepting any minter.
 
 ## Public Functions
 
@@ -40,6 +42,8 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 | `approve_remint(user)`                   | Admin               | Grant one-time remint approval     |
 | `authorize_minter(minter)`               | Admin               | Add authorized minter              |
 | `revoke_minter(minter)`                  | Admin               | Remove authorized minter           |
+| `set_score_recorder(recorder)`           | Admin               | Set the one address that may move scores |
+| `get_score_recorder()`                   | —                   | Configured score recorder, if any  |
 
 ## View Functions
 

@@ -61,14 +61,27 @@ bypassable. Now:
 1. deploy RemittanceNFT, LendingPool, LoanManager, MultisigGovernance
 2. nft.initialize(admin)
 3. pool.initialize(admin)
-4. manager.initialize(nft, pool, token, admin)   # requires nft.authorize_minter(manager) first
-5. pool.set_loan_manager(manager)                # MANDATORY
-6. gov.initialize(admin, target_contract)
-7. target.set_governance(governance)             # on pool, manager and nft
+4. nft.authorize_minter(manager)                 # lets the manager mint reputation NFTs
+5. manager.initialize(nft, pool, token, admin)
+6. pool.set_loan_manager(manager)                # MANDATORY
+7. nft.set_score_recorder(manager)               # MANDATORY
+8. gov.initialize(admin, target_contract)
+9. target.set_governance(governance)             # on pool, manager and nft
 ```
 
-Step 5 is mandatory: without it `disburse` returns `LoanManagerNotSet` and **no
-loan can be funded**. Step 7 closes the single-key `set_admin` bypass.
+Step 6 is mandatory: without it `disburse` returns `LoanManagerNotSet` and **no
+loan can be funded**. Step 7 is likewise mandatory for scoring: without it
+`update_score` and `decrease_score` reject the manager with
+`UnauthorizedScoreRecorder`, so repaying a loan no longer moves a borrower's
+score. That failure is deliberately safe and quiet in the sense that it stops
+crediting rather than crediting from an untrusted writer. Step 9 closes the
+single-key `set_admin` bypass.
+
+Steps 4 and 7 are separate on purpose. `authorize_minter` grants the ability to
+mint a reputation NFT; `set_score_recorder` grants the ability to *change an
+existing borrower's score*. Only one address holds the latter, because the score
+is the input the LoanManager prices loans on and nothing on chain proves a
+repayment happened other than the caller's own report.
 
 ---
 
@@ -88,8 +101,10 @@ loan can be funded**. Step 7 closes the single-key `set_admin` bypass.
 | `mint(user, score, hash, uri, minter)` | admin OR authorized minter | Yes (via `authorize_minter`) | `Metadata(user)` | `Mint` | Creates borrower identity; blocks future first-time mints for `user` | n/a |
 | `admin_remint(user, score, hash, uri)` | admin | No — strictly admin-only | `Metadata(user)`, `Burned(user)=false`, `RemintApproval(user)=consumed`, `Seized`, `TransferCooldown` cleared | ` AdmRemint` | Overrides the post-burn lockout; consumes one pre-issued approval | n/a |
 | `approve_remint(user)` | admin | No | `RemintApproval(user)` | (silent) | Unlocks exactly one subsequent `admin_remint` | n/a |
-| `update_score(user, amount, minter)` | admin OR auth minter | Yes | `Metadata.score`, appends `ScoreHistory`, bumps TTLs | `ScoreUpd` | Updates credit tier used by LoanManager | n/a |
-| `apply_score_delta(user, delta, minter)` | admin OR auth minter | Yes | `Metadata.score` clamped to [0, MAX_SCORE] | `ScoreUpd` (+ `ADJ` history reason) | Same as `update_score` but bidirectional | n/a |
+| `set_score_recorder(recorder)` | admin | No | `ScoreRecorder` | `ScoreRecorderSet` | The single address permitted to move scores on the routine path | n/a |
+| `update_score(user, amount, minter)` | the configured `ScoreRecorder`, or admin when `minter` is `None` | No — one recorder | `Metadata.score`, appends `ScoreHistory`, bumps TTLs | `ScoreUpd` | `UnauthorizedScoreRecorder` unless `minter` is the recorder; updates the credit tier the LoanManager prices on | n/a |
+| `decrease_score(user, points, minter)` | the configured `ScoreRecorder`, or admin when `minter` is `None` | No — one recorder | `Metadata.score` floored at `MIN_CREDIT_SCORE` | `ScoreDec` | Panics on an unauthorised writer | n/a |
+| `apply_score_delta(user, delta, minter)` | admin only — `minter` must be `None` | No | `Metadata.score` clamped to [0, MAX_SCORE] | `ScoreUpd` (+ `ADJ` history reason) | `UnauthorizedScoreRecorder` for any `Some(minter)`, including the recorder: this is the one score path with no economic rule behind it | n/a |
 | `decrease_score(user, penalty, minter)` | admin OR auth minter | Yes | `Metadata.score` floored at `MIN_CREDIT_SCORE=300` | `ScoreDecr` + `PEN` history reason | Reduces credit tier; floor prevents under-flow reputation farming | n/a |
 | `record_default(user, minter)` | admin OR auth minter | Yes | `DefaultCount(user)` ++; sets `Seized`; auto-burns after `BurnThreshold` | `Seized`, `NftBurned` | Gates new Loans/Collateral; eventual NFT destruction | n/a |
 | `seize_collateral(user, minter)` | admin OR auth minter | Yes | `Seized(user)` | `Seized` | Blocks new loan requests + new collateral deposits (does not block repayment) | n/a |
@@ -116,7 +131,7 @@ by `// CEI:` state commits — see inline comments on `approve_loan`,
 | `approve_loan(loan_id)` | admin | No | `Loan.status = Approved`, sets due-date/term/last_interest_ledger/last_late_fee_ledger; **then** asks the pool to `disburse` | `LoanApproved`, `LoanApprv`, pool `Disbursed` | Unlocks repayment; marks funds out of pool | CEI: state committed before the cross-contract call; the pool moves its own principal, because a LoanManager-initiated transfer out of the pool can never be authorised |
 | `deposit_collateral(loan_id, amount)` | recorded `loan.borrower` | No | `Loan.collateral_amount` +=, **then** transfers borrower → contract | `CollateralDeposited` | Increases coverage ratio | CEI: external transfer is the last call |
 | `release_collateral(loan_id)` | (admin-only entry, but `borrower` via the public path) | No | `Loan.collateral_amount = 0` **then** transfers contract → borrower | `CollateralReturned` / `CollateralReleased` | Releases escrowed collateral | CEI: state committed before transfer |
-| `repay(borrower, loan_id, amount)` | `borrower` | No | Splits `amount` proportionally into principal/interest/latefee; bumps `principal_paid`, decrements balances; if fully repaid: marks `Loan.status = Repaid`, decrements `BorrowerLoanCount`, **then** transfers borrower → pool + releases collateral + applies score delta | `LoanRepaid`, optionally `LateFeeCharged` | Closes loan; increased credit | CEI: full state commit precedes transfers; reentrancy on same loan hits `LoanNotActive` |
+| `repay(borrower, loan_id, amount)` | `borrower` | No | Splits `amount` proportionally into principal/interest/latefee; bumps `principal_paid`, decrements balances; if fully repaid: marks `Loan.status = Repaid`, decrements `BorrowerLoanCount`, **then** transfers borrower → pool + releases collateral + credits the score via `update_score` (skipped when the payment is below the NFT's configured minimum, so a high floor cannot fail the repayment) | `LoanRepaid`, optionally `LateFeeCharged` | Closes loan; increased credit | CEI: full state commit precedes transfers; reentrancy on same loan hits `LoanNotActive` |
 | `cancel_loan(borrower, loan_id)` | `borrower` | No | `Loan.status = Cancelled`; if collateral present, transfers back **after** state settle | `LoanCancelled`, optionally `CollateralReturned` | Closes pending loan | CEI-safe |
 | `reject_loan(loan_id, reason)` | admin | No | `Loan.status = Rejected`; collateral returned post-commit | `LoanRejected`, optionally `CollateralReturned` | Closes pending loan | CEI-safe |
 | `liquidate(liquidator, loan_id)` | `liquidator` | No | Under-collateralized loans: `Loan.status = Liquidated`, full debt recovery via proportional split to pool / bonus to liquidator / refund to borrower | `LoanLiquidated`, `CollateralLiquidated` | Closes loan; seizes undervalued collateral | CEI: `loan.collateral_amount = 0` and `Loan.status = Liquidated` committed before any `transfer`; re-entrant `liquidate` on the same id reads `LoanNotActive` |
@@ -182,7 +197,7 @@ the target ZizaLend contract.  Its cross-contract `invoke_contract` call in
 
 | Risk Class | Mitigation in code | Verify via |
 | --- | --- | --- |
-| Auth bypass | Every state-changing entry point calls `require_auth()`; admin paths check the stored admin; minter paths check the `AuthorizedMinter` set (capped at `MAX_AUTHORIZED_MINTERS = 32`); remint is strictly admin-gated; principal can only leave the pool via `LoanManager`-authorised `disburse`; `set_admin` is governance-gated once `set_governance` is called. Note that contract-address auth is *implicit* (invoker-based), so tests must exercise cross-contract transfers under realistic auth rather than `mock_all_auths*` | `contracts/tests/tests/real_auth.rs`, `contracts/tests/tests/admin_model.rs`; unit tests `test_authorized_minter_*`; fuzz target `StealWithdraw` |
+| Auth bypass | Every state-changing entry point calls `require_auth()`; admin paths check the stored admin; minting paths check the `AuthorizedMinter` set (capped at `MAX_AUTHORIZED_MINTERS = 32`) while *score* paths are gated on the single configured `ScoreRecorder`, so no authorised minter can write the reputation the LoanManager prices on; `apply_score_delta` applies no economic rule and is therefore admin-only; remint is strictly admin-gated; principal can only leave the pool via `LoanManager`-authorised `disburse`; `set_admin` is governance-gated once `set_governance` is called. Note that contract-address auth is *implicit* (invoker-based), so tests must exercise cross-contract transfers under realistic auth rather than `mock_all_auths*` | `contracts/tests/tests/real_auth.rs`, `contracts/tests/tests/admin_model.rs`; unit tests `test_authorized_minter_*`; fuzz target `StealWithdraw` |
 | Reentrancy | CEI: state committed before any `token_client.transfer` on `approve_loan`, `repay`, `cancel_loan`, `reject_loan`, `liquidate`, `deposit_collateral`, `extend_loan`, `refinance_loan`; cross-contract loan manager finalize in multisig hits a synchronous `set_admin` | Static read of each function; fuzz target `fuzz_target_1.rs`; integration test `test_liquidate_is_cei_safe_against_reentrant_token` |
 | Integer overflow / DoS | `checked_mul` / `checked_div` / `checked_add` / `checked_rem` chains throughout; `MAX_RATIO_BPS = 10_000` caps; `MAX_PENALTY_MULTIPLIER = 2` caps debt ceiling; `MAX_LATE_FEE_CAP_BPS = 2500` | Integration test `test_interest_overflow_does_not_panic_loan`; fuzz targets assert `total_deposits` / `score` bounds |
 | Score / reputation abuse | `MAX_SCORE = 850` ceiling; `MAX_SCORE_HISTORY_ENTRIES = 50` truncation; `MIN_CREDIT_SCORE = 300` floor; `MIN_SCORE_UPDATE_REPAYMENT = 100` to reject zero-point repayment updates; `MAX_DEFAULT_BURN_THRESHOLD = 1000`; `TRANSFER_COOLDOWN_LEDGERS = 17280` | Fuzz target invariants; integration test `test_authorized_minter_cannot_resurrect_burned_account` |

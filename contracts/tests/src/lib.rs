@@ -51,6 +51,10 @@ mod tests {
         let manager_id = env.register(LoanManager, ());
         let manager_client = LoanManagerClient::new(env, &manager_id);
         nft_client.authorize_minter(&manager_id);
+
+        // The NFT moves a borrower's score only at the request of its single
+        // configured recorder, so the manager must be registered as one.
+        nft_client.set_score_recorder(&manager_id);
         manager_client.initialize(&nft_id, &pool_id, &token_id, &admin);
 
         // Principal can only leave the pool through the pool itself; tell the

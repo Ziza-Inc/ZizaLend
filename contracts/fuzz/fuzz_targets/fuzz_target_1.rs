@@ -99,6 +99,10 @@ fuzz_target!(|actions: std::vec::Vec<FuzzAction>| {
     let lm_client = LoanManagerClient::new(&env, &lm_contract);
     lm_client.initialize(&nft_contract, &pool_contract, &token_address, &nft_admin);
     nft_client.authorize_minter(&lm_contract);
+
+    // The NFT moves a borrower's score only at the request of its single
+    // configured recorder, so the manager must be registered as one.
+    nft_client.set_score_recorder(&lm_contract);
     // Principal leaves the pool only via the pool itself, so register the
     // LoanManager as the contract permitted to request a disbursement.
     pool_client.set_loan_manager(&lm_contract);

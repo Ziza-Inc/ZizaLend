@@ -26,6 +26,8 @@ pub enum NftError {
     BelowMinimum = 17,
     InvalidMetadataUri = 18,
     MinterLimitReached = 19,
+    /// No score recorder has been configured, or the caller is not it
+    UnauthorizedScoreRecorder = 20,
 }
 
 #[contracttype]
@@ -64,6 +66,9 @@ pub enum DataKey {
     MinRepaymentAmount,
     /// Optional governance contract permitted to replace the admin once set.
     Governance,
+    /// The single contract permitted to move a borrower's score on the routine
+    /// path (`update_score`, `decrease_score`).
+    ScoreRecorder,
 }
 
 #[contract]
@@ -142,6 +147,41 @@ impl RemittanceNFT {
             }
         } else {
             Self::admin(env).require_auth();
+        }
+        Ok(())
+    }
+
+    /// The single contract permitted to move scores on the routine path.
+    fn score_recorder(env: &Env) -> Option<Address> {
+        Self::bump_instance_ttl(env);
+        env.storage().instance().get(&DataKey::ScoreRecorder)
+    }
+
+    /// Authorise a caller to move a borrower's score.
+    ///
+    /// Routine score movement must come from the contract that observes the loan, and
+    /// from exactly one of them. Previously `update_score`, `decrease_score`, and
+    /// `apply_score_delta` accepted *any* of up to `MAX_AUTHORIZED_MINTERS` addresses,
+    /// and `update_score` derived its points from a caller-supplied repayment amount
+    /// with nothing on chain tying that amount to a repayment that happened. A single
+    /// compromised minter key could therefore mint reputation from nothing, which is
+    /// the input the LoanManager prices loans on.
+    ///
+    /// So: `Some(addr)` must be the configured recorder, and `None` must be the admin
+    /// (the manual path). Minters that were merely authorised to mint NFTs no longer
+    /// write scores.
+    fn require_score_writer(env: &Env, minter: Option<Address>) -> Result<(), NftError> {
+        Self::assert_not_paused(env)?;
+        match minter {
+            Some(addr) => {
+                addr.require_auth();
+                let recorder =
+                    Self::score_recorder(env).ok_or(NftError::UnauthorizedScoreRecorder)?;
+                if addr != recorder {
+                    return Err(NftError::UnauthorizedScoreRecorder);
+                }
+            }
+            None => Self::admin(env).require_auth(),
         }
         Ok(())
     }
@@ -520,6 +560,28 @@ impl RemittanceNFT {
         Self::get_authorized_minters_list(&env)
     }
 
+    /// Configure the single contract permitted to move scores on the routine path.
+    ///
+    /// Typically the LoanManager, which is the only address that observes a repayment
+    /// actually happening. Without this set, `update_score` and `decrease_score` reject
+    /// every non-admin caller, so a deployment that forgets it stops crediting scores
+    /// rather than silently accepting them from any authorised minter.
+    pub fn set_score_recorder(env: Env, recorder: Address) -> Result<(), NftError> {
+        Self::admin(&env).require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::ScoreRecorder, &recorder);
+        Self::bump_instance_ttl(&env);
+        env.events()
+            .publish((Symbol::new(&env, "ScoreRecorderSet"),), recorder);
+        Ok(())
+    }
+
+    /// The configured score recorder, if any.
+    pub fn get_score_recorder(env: Env) -> Option<Address> {
+        Self::score_recorder(&env)
+    }
+
     /// Mint an NFT representing a user's remittance history and reputation score.
     /// If minter is provided, it must be authorized and must sign the call.
     /// If minter is None, admin must sign the call.
@@ -707,7 +769,9 @@ impl RemittanceNFT {
         if repayment_amount < Self::MIN_SCORE_UPDATE_REPAYMENT {
             return Err(NftError::InvalidRepaymentAmount);
         }
-        Self::require_admin_or_authorized_minter(&env, minter)?;
+        // Only the configured score recorder may credit a score from a repayment
+        // amount, because nothing on chain proves the repayment except the caller.
+        Self::require_score_writer(&env, minter)?;
 
         let metadata_key = DataKey::Metadata(user.clone());
         let mut metadata =
@@ -752,6 +816,12 @@ impl RemittanceNFT {
         Self::bump_instance_ttl(&env);
     }
 
+    /// The minimum repayment amount `update_score` will credit, as configured.
+    ///
+    /// Exposed so a caller can decide whether crediting a score is worthwhile before
+    /// making the call: falling below this floor returns an error, which on a
+    /// cross-contract call fails the whole transaction rather than quietly skipping the
+    /// credit.
     pub fn get_min_repayment_amount(env: Env) -> i128 {
         Self::min_repayment_amount(&env)
     }
@@ -764,8 +834,7 @@ impl RemittanceNFT {
     }
 
     pub fn decrease_score(env: Env, user: Address, penalty_points: u32, minter: Option<Address>) {
-        Self::require_admin_or_authorized_minter(&env, minter)
-            .unwrap_or_else(|_| panic!("unauthorized minter"));
+        Self::require_score_writer(&env, minter).unwrap_or_else(|_| panic!("unauthorized minter"));
 
         if !Self::has_active_nft(&env, &user) {
             return;
@@ -793,13 +862,24 @@ impl RemittanceNFT {
     }
 
     /// Update the history hash for a user's NFT.
+    /// Apply an arbitrary signed adjustment to a borrower's score.
+    ///
+    /// Admin-only, and deliberately so: this is the one score path that applies no
+    /// economic rule at all -- the caller picks the number. Leaving it open to the
+    /// whole authorised-minter set made every loan-pricing input a matter of trusting
+    /// up to 32 keys. Routine movement (up on repayment, down on penalty) goes through
+    /// `update_score` and `decrease_score`, which the single score recorder drives.
     pub fn apply_score_delta(
         env: Env,
         user: Address,
         delta: i32,
         minter: Option<Address>,
     ) -> Result<(), NftError> {
-        Self::require_admin_or_authorized_minter(&env, minter)?;
+        if minter.is_some() {
+            return Err(NftError::UnauthorizedScoreRecorder);
+        }
+        Self::assert_not_paused(&env)?;
+        Self::admin(&env).require_auth();
 
         let metadata_key = DataKey::Metadata(user.clone());
         let mut metadata =

@@ -54,6 +54,10 @@ fn setup(deposit: i128) -> Fixture {
     let manager_id = env.register(LoanManager, ());
     let manager = LoanManagerClient::new(&env, &manager_id);
     nft.authorize_minter(&manager_id);
+
+    // The NFT moves a borrower's score only at the request of its single
+    // configured recorder, so the manager must be registered as one.
+    nft.set_score_recorder(&manager_id);
     manager.initialize(&nft_id, &pool_id, &token_id, &admin);
 
     // The pool must be told which contract may request disbursements.

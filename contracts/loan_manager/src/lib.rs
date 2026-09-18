@@ -7,9 +7,16 @@ use soroban_sdk::{
 #[contractclient(name = "NftClient")]
 pub trait RemittanceNftInterface {
     fn get_score(env: Env, user: Address) -> u32;
+    /// Credits a score from a repayment amount. Only the NFT's configured score
+    /// recorder may call this, which is why the LoanManager must be registered via
+    /// `set_score_recorder` at deploy time.
     fn update_score(env: Env, user: Address, repayment_amount: i128, minter: Option<Address>);
-    fn apply_score_delta(env: Env, user: Address, delta: i32, minter: Option<Address>);
+    /// Penalty half of the same recorder-gated path.
     fn decrease_score(env: Env, user: Address, penalty_points: u32, minter: Option<Address>);
+    /// The NFT's configured minimum creditable repayment, so this contract can decide
+    /// whether a credit is worthwhile before making a call that would otherwise fail
+    /// the whole repayment transaction.
+    fn get_min_repayment_amount(env: Env) -> i128;
     fn seize_collateral(env: Env, user: Address, minter: Option<Address>);
     fn is_seized(env: Env, user: Address) -> bool;
     fn record_default(env: Env, user: Address, minter: Option<Address>);
@@ -1456,26 +1463,22 @@ impl LoanManager {
                         &Self::LATE_REPAYMENT_SCORE_PENALTY.unsigned_abs(),
                         &Some(env.current_contract_address()),
                     );
-                } else {
-                    // Use apply_score_delta rather than update_score so score adjustments
-                    // work for any token denomination without hitting RemittanceNFT's
-                    // anti-dust repayment floor (which assumes XLM stroops).
-                    let points_i128 = amount / 100;
-                    let points_i32 = if points_i128 > i32::MAX as i128 {
-                        i32::MAX
-                    } else if points_i128 <= 0 {
-                        0
-                    } else {
-                        points_i128 as i32
-                    };
-
-                    if points_i32 > 0 {
-                        nft_client.apply_score_delta(
-                            &borrower,
-                            &points_i32,
-                            &Some(env.current_contract_address()),
-                        );
-                    }
+                } else if amount >= nft_client.get_min_repayment_amount() {
+                    // Credit through `update_score`, the recorder-gated path that derives
+                    // points from the repayment amount itself. This previously used
+                    // `apply_score_delta`, which let the caller choose the number and was
+                    // therefore open to any authorised minter; that path is now admin-only
+                    // and unavailable here.
+                    //
+                    // The floor is checked explicitly rather than left to fail: on a
+                    // cross-contract call an error aborts the whole repayment, so a
+                    // configured minimum above the repayment amount would otherwise make
+                    // repaying impossible. Below the floor the credit is simply skipped.
+                    nft_client.update_score(
+                        &borrower,
+                        &amount,
+                        &Some(env.current_contract_address()),
+                    );
                 }
             }
         }

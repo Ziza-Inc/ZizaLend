@@ -2107,6 +2107,184 @@ fn test_update_metadata_uri_rejects_invalid_without_mutating() {
     assert_eq!(client.get_metadata_uri(&user).unwrap(), replacement);
 }
 
+// ── Score write provenance ────────────────────────────────────────────────────
+//
+// Scores used to be writable by any of up to MAX_AUTHORIZED_MINTERS addresses, and
+// `update_score` derived its points from a caller-supplied repayment amount with
+// nothing on chain tying that amount to a repayment that happened. A single
+// compromised minter key could mint reputation, which is the input the LoanManager
+// prices loans on. Routine movement is now gated on one configured score recorder.
+
+#[test]
+fn test_authorized_minter_cannot_write_a_score() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+
+    // Authorised to mint NFTs -- and still not allowed to move a score. This is the
+    // exact privilege escalation the single recorder exists to remove.
+    client.authorize_minter(&minter);
+    assert!(client.is_authorized_minter(&minter));
+
+    assert_eq!(
+        client.try_update_score(&user, &1_000, &Some(minter.clone())),
+        Err(Ok(NftError::UnauthorizedScoreRecorder))
+    );
+    assert_eq!(
+        client.get_score(&user),
+        500,
+        "the score must not have moved"
+    );
+}
+
+#[test]
+fn test_update_score_is_rejected_while_no_recorder_is_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+    client.authorize_minter(&minter);
+
+    assert_eq!(client.get_score_recorder(), None);
+
+    // A deployment that forgets `set_score_recorder` stops crediting scores rather
+    // than silently accepting them from any authorised minter.
+    assert_eq!(
+        client.try_update_score(&user, &1_000, &Some(minter)),
+        Err(Ok(NftError::UnauthorizedScoreRecorder))
+    );
+    assert_eq!(client.get_score(&user), 500);
+
+    // The admin path stays available, so scoring is never stuck.
+    client.update_score(&user, &1_000, &None);
+    assert_eq!(client.get_score(&user), 510);
+}
+
+#[test]
+fn test_configured_score_recorder_can_credit_and_penalise() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+
+    client.set_score_recorder(&recorder);
+    assert_eq!(client.get_score_recorder(), Some(recorder.clone()));
+
+    // One point per 100 units repaid.
+    client.update_score(&user, &1_000, &Some(recorder.clone()));
+    assert_eq!(client.get_score(&user), 510);
+
+    client.decrease_score(&user, &15, &Some(recorder));
+    assert_eq!(client.get_score(&user), 495);
+}
+
+#[test]
+#[should_panic]
+fn test_authorized_minter_cannot_penalise_a_score() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+    client.authorize_minter(&minter);
+
+    // `decrease_score` reports authorisation failure by panicking.
+    client.decrease_score(&user, &10, &Some(minter));
+}
+
+#[test]
+fn test_apply_score_delta_is_admin_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let minter = Address::generate(&env);
+    let recorder = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 1),
+        &create_test_uri(&env),
+        &None,
+    );
+    client.authorize_minter(&minter);
+    client.set_score_recorder(&recorder);
+
+    // The one score path with no economic rule behind it is not available to minters
+    // at all -- not even the recorder, since the recorder's job is to report
+    // repayments, not to choose arbitrary numbers.
+    assert_eq!(
+        client.try_apply_score_delta(&user, &100, &Some(minter.clone())),
+        Err(Ok(NftError::UnauthorizedScoreRecorder))
+    );
+    assert_eq!(
+        client.try_apply_score_delta(&user, &100, &Some(recorder)),
+        Err(Ok(NftError::UnauthorizedScoreRecorder))
+    );
+    assert_eq!(client.get_score(&user), 500);
+
+    // The admin retains the manual lever.
+    client.apply_score_delta(&user, &100, &None);
+    assert_eq!(client.get_score(&user), 600);
+}
+
 #[test]
 fn test_admin_remint_rejects_an_invalid_uri() {
     let env = Env::default();
