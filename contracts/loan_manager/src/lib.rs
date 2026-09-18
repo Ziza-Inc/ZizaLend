@@ -141,7 +141,6 @@ pub enum DataKey {
     DefaultWindowLedgers,
     RateOracle,
     ProposedAdmin,
-    TotalOutstanding(Address),
     LiquidationThresholdBps,
     LiquidationBonusBps,
     MinRateBps,
@@ -525,31 +524,16 @@ impl LoanManager {
             .unwrap_or(Self::DEFAULT_MIN_REPAYMENT_AMOUNT)
     }
 
-    fn total_outstanding(env: &Env, token: &Address) -> i128 {
-        Self::bump_instance_ttl(env);
-        env.storage()
-            .instance()
-            .get(&DataKey::TotalOutstanding(token.clone()))
-            .unwrap_or(0)
-    }
-
-    fn adjust_total_outstanding(env: &Env, token: &Address, delta: i128) {
-        if delta == 0 {
-            return;
-        }
-
-        let key = DataKey::TotalOutstanding(token.clone());
-        let current = Self::total_outstanding(env, token);
-        let updated = current
-            .checked_add(delta)
-            .expect("total outstanding overflow");
-
-        if updated < 0 {
-            panic!("total outstanding underflow");
-        }
-
-        env.storage().instance().set(&key, &updated);
-        Self::bump_instance_ttl(env);
+    /// Principal currently deployed, read from the LendingPool.
+    ///
+    /// The pool owns this counter: it is the contract that actually parts with
+    /// the funds, and it updates the value inside `disburse` and
+    /// `settle_outstanding`. This contract must not keep a second copy — two
+    /// counters describing the same quantity drift apart, and a stale copy
+    /// silently corrupts the liquidity check that depends on it.
+    fn pool_outstanding(env: &Env, token: &Address) -> i128 {
+        let pool = Self::lending_pool(env);
+        PoolClient::new(env, &pool).get_total_outstanding(token)
     }
 
     fn borrower_loan_count(env: &Env, borrower: &Address) -> u32 {
@@ -1168,11 +1152,14 @@ impl LoanManager {
         let term_ledgers = Self::read_default_term(&env);
 
         // Cross-contract READ for liquidity check — still in the CHECKS phase.
+        //
+        // `pool_balance` is the pool's *idle* token balance: disbursed principal
+        // has already left the pool's account, so the outstanding balance is not
+        // subtracted here. Doing so double-counted deployed principal, and a test
+        // asserting the old behaviour is what locked the bug in.
         let pool_client = PoolClient::new(&env, &lending_pool);
-        let pool_balance = pool_client.pool_balance(&token);
-        let total_outstanding = Self::total_outstanding(&env, &token);
-        let available_liquidity = pool_balance.checked_sub(total_outstanding).unwrap_or(0);
-        if available_liquidity < loan.amount {
+        let idle_liquidity = pool_client.pool_balance(&token);
+        if idle_liquidity < loan.amount {
             return Err(LoanError::InsufficientPoolLiquidity);
         }
 
@@ -1189,8 +1176,6 @@ impl LoanManager {
             .due_date
             .checked_add(Self::grace_period_ledgers(&env))
             .expect("grace period overflow");
-        Self::adjust_total_outstanding(&env, &token, transfer_amount);
-
         // Commit state before any cross-contract call (CEI pattern).
         env.storage().persistent().set(&loan_key, &loan);
         Self::bump_persistent_ttl(&env, &loan_key);
@@ -1360,7 +1345,6 @@ impl LoanManager {
             // CEI: mark the loan as Repaid in state before any cross-contract call (#630).
             // A reentrant repay() on the same loan_id will now hit LoanNotActive and
             // revert, preventing double withdrawal of collateral.
-            Self::adjust_total_outstanding(&env, &token, -loan.amount);
             loan.status = LoanStatus::Repaid;
             Self::decrement_borrower_loan_count(&env, &loan.borrower);
         }
@@ -1972,14 +1956,10 @@ impl LoanManager {
                 let additional = new_amount
                     .checked_sub(remaining_principal)
                     .expect("underflow");
-                let pool_balance = token_client.balance(&lending_pool);
-                let outstanding_after_excluding_current = Self::total_outstanding(&env, &token)
-                    .checked_sub(loan.amount)
-                    .expect("total outstanding underflow");
-                let available_liquidity = pool_balance
-                    .checked_sub(outstanding_after_excluding_current)
-                    .unwrap_or(0);
-                if available_liquidity < additional {
+                // Idle balance only: disbursed principal has already left the
+                // pool's account, so subtracting outstanding would double-count it.
+                let idle_liquidity = token_client.balance(&lending_pool);
+                if idle_liquidity < additional {
                     return Err(LoanError::InsufficientPoolLiquidity);
                 }
                 // Route through the pool: only the pool can authorise a transfer
@@ -2019,11 +1999,6 @@ impl LoanManager {
             }
             core::cmp::Ordering::Equal => {}
         }
-
-        let outstanding_delta = new_amount
-            .checked_sub(loan.amount)
-            .expect("outstanding delta overflow");
-        Self::adjust_total_outstanding(&env, &token, outstanding_delta);
 
         // Reset loan terms with new amount and rate.
         loan.amount = new_amount;
@@ -2272,8 +2247,12 @@ impl LoanManager {
         Self::token(&env)
     }
 
+    /// Principal currently deployed, as tracked by the LendingPool.
+    ///
+    /// Delegates to the pool rather than reading a local copy, so this view and
+    /// the pool's own accounting can never disagree.
     pub fn get_total_outstanding(env: Env, token: Address) -> i128 {
-        Self::total_outstanding(&env, &token)
+        Self::pool_outstanding(&env, &token)
     }
 
     pub fn get_borrower_loans(env: Env, borrower: Address) -> Vec<u32> {
@@ -2565,14 +2544,12 @@ impl LoanManager {
             .instance()
             .get(&DataKey::Token)
             .expect("token not set");
-        Self::adjust_total_outstanding(&env, &token, -loan.amount);
         env.storage().persistent().set(&loan_key, &loan);
         Self::bump_persistent_ttl(&env, &loan_key);
         Self::decrement_borrower_loan_count(&env, &loan.borrower);
         Self::seize_collateral_internal(&env, loan_id);
-        // Retire the principal from the pool's outstanding balance in step with
-        // this contract's own counter, so share price stops counting a loan that
-        // will never be repaid.
+        // Retire the principal from the pool's outstanding balance, so share
+        // price stops counting a loan that will never be repaid.
         PoolClient::new(&env, &Self::lending_pool(&env)).settle_outstanding(&token, &loan.amount);
 
         let nft_contract = Self::nft_contract(&env);
@@ -2740,13 +2717,11 @@ impl LoanManager {
                 .instance()
                 .get(&DataKey::Token)
                 .expect("token not set");
-            Self::adjust_total_outstanding(&env, &token, -loan.amount);
             env.storage().persistent().set(&loan_key, &loan);
             Self::bump_persistent_ttl(&env, &loan_key);
             Self::decrement_borrower_loan_count(&env, &loan.borrower);
             Self::seize_collateral_internal(&env, loan_id);
-            // Retire the principal from the pool's outstanding balance in step
-            // with this contract's own counter.
+            // Retire the principal from the pool's outstanding balance.
             PoolClient::new(&env, &Self::lending_pool(&env))
                 .settle_outstanding(&token, &loan.amount);
 
