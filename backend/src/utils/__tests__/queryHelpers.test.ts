@@ -45,4 +45,23 @@ describe('parseCappedLimit', () => {
     const req = mockRequest('50.5') as Request;
     expect(parseCappedLimit(req, 20)).toBe(20);
   });
+
+  it('should cap a caller-supplied default that exceeds MAX_LIMIT', () => {
+    const req = mockRequest(undefined) as Request;
+    expect(parseCappedLimit(req, 1000)).toBe(100);
+  });
+
+  it('should fall back to DEFAULT_LIMIT when the supplied default is not positive', () => {
+    const req = mockRequest(undefined) as Request;
+    expect(parseCappedLimit(req, 0)).toBe(20);
+    expect(parseCappedLimit(req, -3)).toBe(20);
+  });
+
+  it('should ignore an array-valued limit parameter', () => {
+    const req = {
+      query: { limit: ['10', '20'] },
+    } as unknown as Request;
+
+    expect(parseCappedLimit(req, 20)).toBe(20);
+  });
 });
