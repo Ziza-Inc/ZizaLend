@@ -590,8 +590,14 @@ fn setup_guarded_pool(
     (pool_client, token_id, stellar, token_client)
 }
 
+/// A same-ledger withdraw is refused with the *declared* error, not an opaque trap.
+///
+/// This asserted a panic string until the guard was changed to return
+/// `PoolError::MinimumHoldTimeNotMet`. Asserting on the decoded variant is strictly
+/// stronger: it pins the condition to the code the enum advertises, so a caller that
+/// branches on code 12 is guaranteed to be branching on something that is actually
+/// raised.
 #[test]
-#[should_panic(expected = "minimum_hold_time_not_met")]
 fn test_same_ledger_withdrawal_with_cooldown_disabled_is_refused() {
     let env = Env::default();
     let (pool_client, token_id, stellar, _) = setup_guarded_pool(&env, 0);
@@ -599,7 +605,12 @@ fn test_same_ledger_withdrawal_with_cooldown_disabled_is_refused() {
     let provider = Address::generate(&env);
     stellar.mint(&provider, &1_000);
     pool_client.deposit(&provider, &token_id, &1_000);
-    pool_client.withdraw(&provider, &token_id, &1_000);
+
+    assert_eq!(
+        pool_client.try_withdraw(&provider, &token_id, &1_000),
+        Err(Ok(PoolError::MinimumHoldTimeNotMet)),
+        "a same-ledger withdrawal must surface PoolError::MinimumHoldTimeNotMet"
+    );
 }
 
 #[test]

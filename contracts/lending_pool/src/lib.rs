@@ -67,6 +67,10 @@ pub enum PoolError {
     InsufficientBalance = 6,
     /// Pool lacks sufficient idle liquidity to fulfill the withdrawal
     InsufficientLiquidity = 7,
+    // 8 is reserved. It was the withdrawal-cooldown violation code before the cooldown was
+    // reworked into `CooldownTooLong` (11) plus the unconditional minimum-hold guard; the
+    // number is held rather than reused so an error already decoded from a deployed ledger
+    // keeps its meaning.
     /// Max pool size value is negative
     InvalidMaxPoolSize = 9,
     /// No pending admin proposal to accept
@@ -79,8 +83,11 @@ pub enum PoolError {
     AmountBelowMinimum = 13,
     /// No LoanManager has been configured for this pool
     LoanManagerNotSet = 14,
-    /// Caller is not the configured LoanManager
-    UnauthorizedLoanManager = 15,
+    // 15 is reserved. It was declared as `UnauthorizedLoanManager`, which no path could
+    // raise: the gate is `loan_manager.require_auth()` in `require_loan_manager`, and
+    // `require_auth` aborts the host call rather than returning a value, so the variant was
+    // unreachable by construction. The number is held rather than reused so a stale decoder
+    // keeps its meaning.
     /// The token has not been registered as a market by the admin
     TokenNotAllowed = 16,
 }
@@ -404,15 +411,24 @@ impl LendingPool {
     /// guard at all -- which is exactly what happened: the hatch's docstring promised
     /// the minimum hold time was enforced while the call went straight to
     /// `redeem_shares`.
-    fn assert_share_held_for_minimum_ledgers(env: &Env, provider: &Address, token: &Address) {
+    fn assert_share_held_for_minimum_ledgers(
+        env: &Env,
+        provider: &Address,
+        token: &Address,
+    ) -> Result<(), PoolError> {
         let Some(deposit_ledger) = Self::read_deposit_timestamp(env, provider, token) else {
-            return;
+            return Ok(());
         };
 
         let current_ledger = env.ledger().sequence();
         if current_ledger < deposit_ledger.saturating_add(Self::MINIMUM_HOLD_LEDGERS) {
-            panic!("minimum_hold_time_not_met");
+            // Returns the variant declared for this exact condition rather than panicking.
+            // A panic is indistinguishable from a bug to an integrating client: it arrives
+            // as an opaque host error, so the caller cannot tell an expected refusal from a
+            // trap, and `PoolError::MinimumHoldTimeNotMet` was declared but never raised.
+            return Err(PoolError::MinimumHoldTimeNotMet);
         }
+        Ok(())
     }
 
     /// Assert the minimum share hold time, deferring to the withdrawal cooldown when one
@@ -425,11 +441,15 @@ impl LendingPool {
     /// ledger are refused at every cooldown setting -- but only on a path that reaches
     /// *both* checks. `withdraw` does. Any entry point that skips one of them must use
     /// `assert_share_held_for_minimum_ledgers` instead of this.
-    fn assert_minimum_hold_elapsed(env: &Env, provider: &Address, token: &Address) {
+    fn assert_minimum_hold_elapsed(
+        env: &Env,
+        provider: &Address,
+        token: &Address,
+    ) -> Result<(), PoolError> {
         if Self::withdrawal_cooldown(env) >= Self::MINIMUM_HOLD_LEDGERS {
-            return;
+            return Ok(());
         }
-        Self::assert_share_held_for_minimum_ledgers(env, provider, token);
+        Self::assert_share_held_for_minimum_ledgers(env, provider, token)
     }
 
     /// Principal attributable to `shares` out of `total_shares`.
@@ -955,7 +975,7 @@ impl LendingPool {
     ) -> Result<(), PoolError> {
         provider.require_auth();
         Self::assert_not_paused(&env)?;
-        Self::assert_minimum_hold_elapsed(&env, &provider, &token);
+        Self::assert_minimum_hold_elapsed(&env, &provider, &token)?;
         Self::assert_withdrawal_cooldown_elapsed(&env, &provider, &token);
         Self::redeem_shares(&env, &provider, &token, shares)
     }
@@ -981,7 +1001,7 @@ impl LendingPool {
         provider.require_auth();
         // The unconditional form: this path does not run the cooldown check, so the
         // cooldown-deferring variant would enforce nothing.
-        Self::assert_share_held_for_minimum_ledgers(&env, &provider, &token);
+        Self::assert_share_held_for_minimum_ledgers(&env, &provider, &token)?;
         Self::redeem_shares(&env, &provider, &token, shares)
     }
 

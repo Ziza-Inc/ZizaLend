@@ -77,9 +77,18 @@ pub enum LoanError {
     InvalidConfiguration = 21,
     SeizedBorrower = 22,
     AmountTooLarge = 23,
-    MaxExtensionsReached = 24,
-    InvalidExtension = 25,
-    InsufficientCollateral = 26,
+    // These three were declared as `MaxExtensionsReached`, `InvalidExtension` and
+    // `InsufficientCollateral`, none of which any code path could raise: there is no
+    // loan-extension entry point and no collateral ratio in this contract.
+    // Declared-but-unreachable codes are worse than absent ones -- they advertise features
+    // and failure modes that do not exist, and an integrator who branches on them is
+    // branching on something that can never happen.
+    //
+    // 24 is reserved.
+    // 25 is reserved.
+    // 26 is reserved.
+    //
+    // The numbers are held rather than reused so a stale decoder keeps its meaning.
     LoanNotLiquidatable = 27,
     LoanNotPurgable = 28,
 }
@@ -2589,11 +2598,16 @@ impl LoanManager {
     }
 
     pub fn accept_admin(env: Env) -> Result<(), LoanError> {
+        // `NoProposedAdmin`, not `NotInitialized`: the contract is initialised whenever this
+        // is reachable, and the two contracts beside this one (LendingPool, RemittanceNFT)
+        // already return the specific variant. Reporting a missing proposal as "the contract
+        // was never initialised" sends an operator to look at deployment state instead of at
+        // `propose_admin`, which is where the problem actually is.
         let proposed_admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::ProposedAdmin)
-            .ok_or(LoanError::NotInitialized)?;
+            .ok_or(LoanError::NoProposedAdmin)?;
         proposed_admin.require_auth();
 
         env.storage()

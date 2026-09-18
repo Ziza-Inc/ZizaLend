@@ -106,6 +106,38 @@ fn test_set_admin_updates_admin_immediately() {
     assert_eq!(manager.get_admin(), new_admin);
 }
 
+/// An accepted handover with nothing proposed reports the *specific* failure.
+///
+/// `accept_admin` returned `NotInitialized` here while the two sibling contracts returned
+/// `NoProposedAdmin`, so the one contract that could not report the condition correctly was
+/// the one whose only admin path is a single key. A decoded `NotInitialized` sends an
+/// operator to inspect deployment state; the real remedy is to call `propose_admin`.
+#[test]
+fn test_accept_admin_without_a_proposal_is_no_proposed_admin() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, _nft_client, _pool, _token, _token_admin) = setup_test(&env);
+
+    assert_eq!(
+        manager.try_accept_admin(),
+        Err(Ok(LoanError::NoProposedAdmin)),
+        "accepting a handover with no proposal must report NoProposedAdmin, not NotInitialized"
+    );
+}
+
+/// The variants removed with the dead-code pass are gone, and their numbers are held.
+///
+/// `MaxExtensionsReached` (24), `InvalidExtension` (25) and `InsufficientCollateral` (26)
+/// described a loan-extension flow and a collateral ratio that this contract does not have,
+/// so nothing could ever raise them. The test pins the surviving neighbours so a future
+/// variant cannot quietly claim one of the reserved numbers and break a decoder.
+#[test]
+fn test_reserved_error_codes_are_not_reused() {
+    assert_eq!(LoanError::AmountTooLarge as u32, 23);
+    assert_eq!(LoanError::LoanNotLiquidatable as u32, 27);
+}
+
 #[test]
 fn test_set_min_score_valid_update_emits_event() {
     let env = Env::default();
