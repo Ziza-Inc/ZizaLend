@@ -28,6 +28,9 @@ pub enum NftError {
     MinterLimitReached = 19,
     /// No score recorder has been configured, or the caller is not it
     UnauthorizedScoreRecorder = 20,
+    /// `revoke_minter` was called for the current admin, whose minting authority comes
+    /// from the admin role and cannot be revoked this way
+    CannotRevokeAdmin = 21,
 }
 
 #[contracttype]
@@ -544,49 +547,105 @@ impl RemittanceNFT {
         Self::bump_instance_ttl(&env);
     }
 
-    /// Authorize a contract or account to mint NFTs
-    pub fn authorize_minter(env: Env, minter: Address) -> Result<(), NftError> {
-        Self::admin(&env).require_auth();
-
+    /// Add `minter` to the allow-list, refreshing its entry if already present.
+    ///
+    /// Returns whether the list actually changed. The two structures the allow-list lives
+    /// in -- the per-address marker and the bounded list the cap is enforced against -- are
+    /// only ever written together, here and in `remove_authorized_minter`.
+    fn add_authorized_minter(env: &Env, minter: &Address) -> Result<bool, NftError> {
         let key = DataKey::AuthorizedMinter(minter.clone());
         if env.storage().persistent().has(&key) {
-            Self::bump_persistent_ttl(&env, &key);
-            return Ok(());
+            Self::bump_persistent_ttl(env, &key);
+            return Ok(false);
         }
 
-        let mut minters = Self::get_authorized_minters_list(&env);
+        let mut minters = Self::get_authorized_minters_list(env);
         if minters.len() >= Self::MAX_AUTHORIZED_MINTERS {
             return Err(NftError::MinterLimitReached);
         }
 
         minters.push_back(minter.clone());
-        Self::write_authorized_minters_list(&env, &minters);
+        Self::write_authorized_minters_list(env, &minters);
 
         env.storage().persistent().set(&key, &true);
-        Self::bump_persistent_ttl(&env, &key);
-
-        env.events().publish((symbol_short!("MntAuth"), minter), ());
-        Ok(())
+        Self::bump_persistent_ttl(env, &key);
+        Ok(true)
     }
 
-    /// Revoke authorization for a contract or account to mint NFTs
-    pub fn revoke_minter(env: Env, minter: Address) {
-        Self::admin(&env).require_auth();
+    /// Remove `minter` from the allow-list. Returns whether it was present.
+    fn remove_authorized_minter(env: &Env, minter: &Address) -> bool {
+        let key = DataKey::AuthorizedMinter(minter.clone());
+        if !env.storage().persistent().has(&key) {
+            return false;
+        }
+        env.storage().persistent().remove(&key);
 
-        env.storage()
-            .persistent()
-            .remove(&DataKey::AuthorizedMinter(minter.clone()));
-
-        let minters = Self::get_authorized_minters_list(&env);
-        let mut updated = Vec::new(&env);
+        let minters = Self::get_authorized_minters_list(env);
+        let mut updated = Vec::new(env);
         for existing in minters.iter() {
-            if existing != minter {
+            if &existing != minter {
                 updated.push_back(existing);
             }
         }
-        Self::write_authorized_minters_list(&env, &updated);
+        Self::write_authorized_minters_list(env, &updated);
+        true
+    }
 
-        env.events().publish((symbol_short!("MntRev"), minter), ());
+    /// Keep the minter allow-list consistent with the admin role across a handover.
+    ///
+    /// `initialize` grants the admin minter authorization, so "the admin is an authorized
+    /// minter" is an invariant this contract establishes. Nothing maintained it when the
+    /// admin changed: the previous admin kept its entry and could go on minting
+    /// score-bearing NFTs after handing over the role, while the new admin had no entry at
+    /// all. The outgoing entry is removed before the incoming one is added, so the list can
+    /// only shrink here and the minter cap can never block a handover.
+    fn reconcile_minter_after_admin_change(env: &Env, outgoing: &Address, incoming: &Address) {
+        if outgoing == incoming {
+            return;
+        }
+
+        if Self::remove_authorized_minter(env, outgoing) {
+            env.events()
+                .publish((symbol_short!("MntRev"), outgoing.clone()), ());
+        }
+
+        // A full list leaves the new admin without an entry. That is bookkeeping, not a
+        // capability loss -- the admin role alone permits `mint(..., None)` -- so it must
+        // not fail the transfer.
+        if Self::add_authorized_minter(env, incoming).unwrap_or(false) {
+            env.events()
+                .publish((symbol_short!("MntAuth"), incoming.clone()), ());
+        }
+    }
+
+    /// Authorize a contract or account to mint NFTs
+    pub fn authorize_minter(env: Env, minter: Address) -> Result<(), NftError> {
+        Self::admin(&env).require_auth();
+
+        if Self::add_authorized_minter(&env, &minter)? {
+            env.events().publish((symbol_short!("MntAuth"), minter), ());
+        }
+        Ok(())
+    }
+
+    /// Revoke a contract's or account's authorization to mint NFTs.
+    ///
+    /// The current admin cannot be revoked. The admin's ability to mint comes from the
+    /// admin role itself -- `mint(..., None)` needs only the admin -- so revoking the entry
+    /// would leave `is_authorized_minter(admin)` reporting `false` while the admin went on
+    /// minting. Refusing keeps the allow-list an accurate description of who can mint.
+    pub fn revoke_minter(env: Env, minter: Address) -> Result<(), NftError> {
+        let admin = Self::admin(&env);
+        admin.require_auth();
+
+        if minter == admin {
+            return Err(NftError::CannotRevokeAdmin);
+        }
+
+        if Self::remove_authorized_minter(&env, &minter) {
+            env.events().publish((symbol_short!("MntRev"), minter), ());
+        }
+        Ok(())
     }
 
     /// Check if an address is authorized to mint
@@ -1341,6 +1400,7 @@ impl RemittanceNFT {
             .instance()
             .set(&Self::admin_key(), &proposed_admin);
         env.storage().instance().remove(&DataKey::ProposedAdmin);
+        Self::reconcile_minter_after_admin_change(&env, &previous_admin, &proposed_admin);
         Self::bump_instance_ttl(&env);
 
         env.events().publish(
@@ -1410,6 +1470,7 @@ impl RemittanceNFT {
 
         env.storage().instance().set(&Self::admin_key(), &new_admin);
         env.storage().instance().remove(&DataKey::ProposedAdmin);
+        Self::reconcile_minter_after_admin_change(&env, &current_admin, &new_admin);
         Self::bump_instance_ttl(&env);
 
         env.events().publish(

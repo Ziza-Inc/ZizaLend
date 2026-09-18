@@ -2408,3 +2408,111 @@ fn test_migrate_never_moves_the_version_backwards() {
         "a migration must not report a newer contract as older"
     );
 }
+
+/// Handing over the admin role must hand over minting authorization with it.
+///
+/// `initialize` grants the admin minter authorization, so "the admin is an authorized
+/// minter" is an invariant this contract establishes. Nothing maintained it when the admin
+/// changed: the previous admin kept its entry and could go on minting score-bearing NFTs
+/// after handing the role over, while the new admin had no entry at all. That is a
+/// privilege surviving exactly the transfer the governance apparatus exists to perform, and
+/// the stale entry also consumed one of the `MAX_AUTHORIZED_MINTERS` slots.
+#[test]
+fn test_admin_handover_moves_minter_authorization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+    assert!(client.is_authorized_minter(&admin));
+
+    client.set_admin(&new_admin);
+
+    assert!(
+        client.is_authorized_minter(&new_admin),
+        "the new admin must be able to mint"
+    );
+    assert!(
+        !client.is_authorized_minter(&admin),
+        "the previous admin must lose minting authorization"
+    );
+
+    // The authorization is real, not just bookkeeping: the old key can no longer mint.
+    let user = Address::generate(&env);
+    assert!(
+        matches!(
+            client.try_mint(
+                &user,
+                &500,
+                &create_test_hash(&env, 4),
+                &create_test_uri(&env),
+                &Some(admin.clone()),
+            ),
+            Err(Ok(NftError::UnauthorizedMinter))
+        ),
+        "the previous admin must not be able to mint any more"
+    );
+    client.mint(
+        &user,
+        &500,
+        &create_test_hash(&env, 4),
+        &create_test_uri(&env),
+        &Some(new_admin.clone()),
+    );
+    assert_eq!(client.get_score(&user), 500);
+}
+
+/// The same handover performed through the two-step path must reconcile the list too.
+#[test]
+fn test_accept_admin_handover_moves_minter_authorization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    client.propose_admin(&new_admin);
+    client.accept_admin();
+
+    assert_eq!(client.get_admin(), new_admin);
+    assert!(client.is_authorized_minter(&new_admin));
+    assert!(!client.is_authorized_minter(&admin));
+}
+
+/// The admin cannot be revoked as a minter.
+///
+/// The admin's ability to mint comes from the admin role -- `mint(..., None)` requires only
+/// the admin -- so allowing the entry to be removed would leave
+/// `is_authorized_minter(admin)` reporting `false` while the admin went on minting.
+#[test]
+fn test_revoke_minter_refuses_the_current_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    assert!(
+        matches!(
+            client.try_revoke_minter(&admin),
+            Err(Ok(NftError::CannotRevokeAdmin))
+        ),
+        "the admin's minting authority comes from the admin role and cannot be revoked"
+    );
+    assert!(client.is_authorized_minter(&admin));
+
+    // A delegate minter is still revocable.
+    let delegate = Address::generate(&env);
+    client.authorize_minter(&delegate);
+    assert!(client.is_authorized_minter(&delegate));
+    client.revoke_minter(&delegate);
+    assert!(!client.is_authorized_minter(&delegate));
+}

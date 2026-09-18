@@ -94,7 +94,8 @@ repayment happened other than the caller's own report.
 | --- | --- | --- | --- | --- | --- | --- |
 | `initialize(admin)` | admin (first call) | No — single-shot | `Admin`, `AuthorizedMinter(admin)`, `AuthorizedMinters=[admin]`, `BurnThreshold=3`, `Version=2`, `Paused=false` | (init) | Whole contract: requires admin for all subsequent admin-only ops | n/a |
 | `authorize_minter(minter)` | admin | n/a itself | `AuthorizedMinter(minter)`, `AuthorizedMinters` | `MntAuth` | Allows the address to mint / update / seize within explicitly delegated entry points | n/a |
-| `revoke_minter(minter)` | admin | n/a itself | `AuthorizedMinter(minter)` removed; `AuthorizedMinters` rebuilt | `MntRev` | Removes mint/update/seize capability for the address | n/a |
+| `revoke_minter(minter)` | admin | n/a itself | `AuthorizedMinter(minter)` removed; `AuthorizedMinters` rebuilt | `MntRev` | Removes mint/update/seize capability for the address. Refuses the current admin, whose minting authority comes from the admin role and is not revocable this way | n/a |
+| `set_admin` / `propose_admin`+`accept_admin` | admin / proposed admin | — | `Admin`; **reconciles the minter allow-list** — the outgoing admin's `AuthorizedMinter` entry is removed and the incoming admin's is added | `AdminTransferred`, plus `MntRev`/`MntAuth` for the entries that changed | `initialize` grants the admin minter authorization, so the two must move together; otherwise the previous admin keeps minting after the handover | n/a |
 | `upgrade(wasm_hash)` | admin | No | `Version` | `ContractUpgraded` + WASM swap | Contract bytecode identity | n/a |
 | `migrate()` | admin | No | Defaults for any missing storage keys | (silent) | After upgrade | n/a |
 | `pause` / `unpause` | admin | No | `Paused` | `Paused` / `Unpaused` | Blocks mint/admin_remint/update_score/seize_collateral/burn/transfer | n/a |

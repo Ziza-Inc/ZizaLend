@@ -41,7 +41,7 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 | `transfer(from, to, minter)`             | User + admin/minter | Move NFT between wallets           |
 | `approve_remint(user)`                   | Admin               | Grant one-time remint approval     |
 | `authorize_minter(minter)`               | Admin               | Add authorized minter              |
-| `revoke_minter(minter)`                  | Admin               | Remove authorized minter           |
+| `revoke_minter(minter)`                  | Admin               | Remove authorized minter (the current admin cannot be revoked this way) |
 | `set_score_recorder(recorder)`           | Admin               | Set the one address that may move scores |
 | `get_score_recorder()`                   | —                   | Configured score recorder, if any  |
 
