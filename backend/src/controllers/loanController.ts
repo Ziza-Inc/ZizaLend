@@ -200,6 +200,8 @@ export const contestDefault = asyncHandler(
 );
 
 const LEDGER_CLOSE_SECONDS = 5;
+/** Ledgers in a day, at the 5-second close time Stellar targets. */
+const LEDGER_DAY = 17280;
 const DEFAULT_TERM_LEDGERS = 17280; // 1 day in ledgers
 const DEFAULT_INTEREST_RATE_BPS = 1200; // 12%
 
@@ -242,7 +244,6 @@ const buildAmortizationSchedule = (
   const totalInterest = principal * (interestRateBps / 10000);
   const totalDue = principal + totalInterest;
 
-  const LEDGER_DAY = 17280; // 1 day in ledgers
   const termDays = termLedgers / LEDGER_DAY;
 
   const periodCount = Math.max(1, Math.round(termDays / 30) || 1);
@@ -654,10 +655,14 @@ export const getLoanAmortizationSchedule = asyncHandler(async (req: Request, res
  * POST /api/loans/request
  */
 export const requestLoan = asyncHandler(async (req: Request, res: Response) => {
-  const { amount, borrowerPublicKey } = req.body as {
+  const { amount, borrowerPublicKey, termDays } = req.body as {
     amount: number;
     borrowerPublicKey: string;
+    termDays: number;
   };
+
+  // The contract takes a term in ledgers; the API speaks in days.
+  const termLedgers = termDays * LEDGER_DAY;
 
   if (borrowerPublicKey !== req.user?.publicKey) {
     throw AppError.forbidden(
@@ -683,8 +688,10 @@ export const requestLoan = asyncHandler(async (req: Request, res: Response) => {
     }
   }
 
-  // Idempotency: return existing unsigned tx if recently built for this borrower/amount
-  const cacheKey = `pending_loan_tx:${borrowerPublicKey}:${amount}`;
+  // Idempotency: return existing unsigned tx if recently built for this borrower/amount.
+  // The term is part of the key -- two requests for the same amount on different terms
+  // are different transactions, and sharing a key would hand one caller the other's term.
+  const cacheKey = `pending_loan_tx:${borrowerPublicKey}:${amount}:${termLedgers}`;
   const cachedTx = await cacheService.get<{
     unsignedTxXdr: string;
     networkPassphrase: string;
@@ -703,7 +710,7 @@ export const requestLoan = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
 
-  const result = await sorobanService.buildRequestLoanTx(borrowerPublicKey, amount);
+  const result = await sorobanService.buildRequestLoanTx(borrowerPublicKey, amount, termLedgers);
 
   // Cache for 60 seconds to prevent sequence number collisions from rapid requests
   await cacheService.set(cacheKey, result, 60);

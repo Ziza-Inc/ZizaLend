@@ -219,7 +219,7 @@ describe('POST /api/loans/request', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/request')
-      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER });
+      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 30 });
     expect(response.status).toBe(401);
   });
 
@@ -228,7 +228,7 @@ describe('POST /api/loans/request', () => {
     const response = await request(app)
       .post('/api/loans/request')
       .set(bearer(TEST_BORROWER))
-      .send({ amount: 1000, borrowerPublicKey: otherBorrower });
+      .send({ amount: 1000, borrowerPublicKey: otherBorrower, termDays: 30 });
     expect(response.status).toBe(403);
   });
 
@@ -241,7 +241,7 @@ describe('POST /api/loans/request', () => {
     const response = await request(app)
       .post('/api/loans/request')
       .set(bearer(TEST_BORROWER))
-      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER });
+      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 30 });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -253,8 +253,33 @@ describe('POST /api/loans/request', () => {
     const response = await request(app)
       .post('/api/loans/request')
       .set(bearer(TEST_BORROWER))
-      .send({ borrowerPublicKey: TEST_BORROWER });
+      .send({ borrowerPublicKey: TEST_BORROWER, termDays: 30 });
     expect(response.status).toBe(400);
+  });
+
+  it('should reject a request with no term, rather than picking one', async () => {
+    const response = await request(app)
+      .post('/api/loans/request')
+      .set(bearer(TEST_BORROWER))
+      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER });
+    expect(response.status).toBe(400);
+  });
+
+  it('should pass the requested term to the contract call in ledgers', async () => {
+    mockBuildRequestLoanTx.mockResolvedValueOnce({
+      unsignedTxXdr: 'AAAA...base64xdr',
+      networkPassphrase: 'Test SDF Network ; September 2015',
+    });
+
+    const response = await request(app)
+      .post('/api/loans/request')
+      .set(bearer(TEST_BORROWER))
+      .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 60 });
+
+    expect(response.status).toBe(200);
+    // 60 days at 17,280 ledgers a day. A one-day default here is the bug this asserts
+    // against: the contract stores and accrues over whatever term it is given.
+    expect(mockBuildRequestLoanTx).toHaveBeenCalledWith(TEST_BORROWER, 1000, 60 * 17280);
   });
 });
 

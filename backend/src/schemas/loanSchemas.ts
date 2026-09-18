@@ -14,9 +14,21 @@ export const positiveAmountSchema = z.number().int().positive('Amount must be a 
 
 const base64Regex = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+/**
+ * The loan terms the product offers, in days.
+ *
+ * The on-chain `request_loan` takes its term in ledgers, so days are converted at the
+ * boundary in `SorobanService.buildRequestLoanTx`.
+ */
+export const termDaysSchema = z.union([z.literal(30), z.literal(60), z.literal(90)]);
+
 export const requestLoanSchema = z.object({
   amount: positiveAmountSchema,
   borrowerPublicKey: stellarAddressSchema,
+  // Required rather than defaulted. The term is a material term of the loan -- the
+  // contract stores the term the borrower asked for and prices and accrues against it -
+  // so choosing one on the caller's behalf is how a one-day default went unnoticed.
+  termDays: termDaysSchema,
 });
 
 export const repayLoanSchema = z.object({
@@ -26,7 +38,7 @@ export const repayLoanSchema = z.object({
 
 export const previewAmortizationSchema = z.object({
   amount: positiveAmountSchema,
-  termDays: z.union([z.literal(30), z.literal(60), z.literal(90)]),
+  termDays: termDaysSchema,
 });
 
 export const repayLoanParamsSchema = z.object({
