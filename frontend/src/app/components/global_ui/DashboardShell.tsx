@@ -7,13 +7,7 @@ import { BottomNav } from "./BottomNav";
 import { Header } from "./Header";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { OfflineBanner } from "./OfflineBanner";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { InstallPrompt } from "./InstallPrompt";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 interface DashboardShellProps {
   children: ReactNode;

@@ -148,8 +148,25 @@ async function readSource(relative) {
     return fs.readFile(path.join(ROOT, relative), 'utf8');
 }
 
+/**
+ * Make `text` safe to place inside a markdown table cell.
+ *
+ * Backslashes must be escaped **before** pipes. Doing it the other way round, as this did,
+ * rewrites the backslash that escaping the pipe just introduced, so a guard string
+ * containing a literal `\` produced a table cell whose escaping was broken — the pipe
+ * escaped, then the escape character itself escaped again. The two substitutions cannot
+ * commute, so the order is the whole fix.
+ *
+ * The text is source code, which routinely contains backslashes: `\n` in a JSON literal,
+ * `\d` in a regex, `\u` in an escape sequence.
+ */
 function escapeCell(text) {
-    return text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim().slice(0, 150);
+    return text
+        .replace(/\\/g, '\\\\')
+        .replace(/\|/g, '\\|')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 150);
 }
 
 async function build() {

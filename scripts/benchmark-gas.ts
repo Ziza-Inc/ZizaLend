@@ -32,7 +32,7 @@ import { createHash } from "crypto";
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as dotenv from "dotenv";
-import { buildInvocation, invoke, sendTx } from "./soroban";
+import { buildInvocation, sendTx } from "./soroban";
 import { i128, u32 } from "./scval";
 
 dotenv.config();
