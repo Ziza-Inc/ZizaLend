@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 import { jest } from '@jest/globals';
 
 import express from 'express';
-import { requestIdMiddleware } from '../middleware/requestId.js';
+import { MAX_REQUEST_ID_LENGTH, requestIdMiddleware } from '../middleware/requestId.js';
 
 describe('Request ID middleware', () => {
   it('adds x-request-id when missing', async () => {
@@ -24,6 +24,47 @@ describe('Request ID middleware', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers['x-request-id']).toBe(requestId);
+  });
+
+  // Header values are asserted through the middleware directly: Node's HTTP
+  // client refuses to transmit control characters, so the sanitizer is the
+  // component that must reject them.
+  const runMiddleware = (incoming: string) => {
+    const request = {
+      header: () => incoming,
+      requestId: undefined as string | undefined,
+    };
+    const headers: Record<string, string> = {};
+    const response = {
+      setHeader: (key: string, value: string) => {
+        headers[key] = value;
+      },
+    };
+
+    requestIdMiddleware(request as never, response as never, (() => undefined) as never);
+
+    return { requestId: request.requestId ?? '', header: headers['x-request-id'] ?? '' };
+  };
+
+  it('replaces a header containing control characters to prevent log injection', () => {
+    const { requestId, header } = runMiddleware('abc\nwarn: forged log line');
+
+    expect(requestId).not.toContain('\n');
+    expect(requestId).not.toContain('forged');
+    expect(header).toBe(requestId);
+  });
+
+  it('replaces an oversized header rather than echoing it back', () => {
+    const { requestId } = runMiddleware('a'.repeat(MAX_REQUEST_ID_LENGTH + 50));
+
+    expect(requestId.length).toBeLessThanOrEqual(MAX_REQUEST_ID_LENGTH);
+    expect(requestId).not.toBe('a'.repeat(MAX_REQUEST_ID_LENGTH + 50));
+  });
+
+  it('falls back to a generated id when the header is blank', () => {
+    const { requestId } = runMiddleware('   ');
+
+    expect(requestId.trim().length).toBeGreaterThan(0);
   });
 
   it('correlates logger requestId with x-request-id via withContext', async () => {
