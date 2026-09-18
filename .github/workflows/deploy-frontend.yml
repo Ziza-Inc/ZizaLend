@@ -109,40 +109,76 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Verify the deployment serves
+        env:
+          # The URL a user actually reaches. Overridable so the alias can change without a
+          # code edit, but defaulted, because a check that silently skips itself when a
+          # variable is missing is not a check.
+          PRODUCTION_URL: ${{ vars.VERCEL_PRODUCTION_URL || 'https://zizalend.vercel.app' }}
+          BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set -euo pipefail
-          # A deployment can report success while the alias serves a stale build, so the
-          # published URL is fetched rather than trusted.
+          # Two URLs, two different questions, and conflating them is what made this step lie.
           #
-          # The root is fetched with redirects followed, deliberately. `next-intl` runs a
-          # `localePrefix: "always"` middleware, so `/` answers 307 — 302 on the
-          # deployment-specific host — and negotiates to `/en`. Asserting 200 on the first
-          # response asserts something this application is never supposed to do, which is
-          # why this step was red on every run while the deploy above it succeeded. The
-          # claim worth checking is that the journey from the root ends on a served page,
-          # so the redirect is followed and the final code is what gets pinned.
+          # The *deployment* URL that `vercel deploy` prints is behind Vercel Deployment
+          # Protection on this project: every request 302s to `vercel.com/sso-api`, and
+          # following that lands on the Vercel login page, which answers 200. So asserting
+          # `200` on the deployment URL does not verify this application at all — it verifies
+          # that Vercel's own login page is up. Worse, grepping that page for the project
+          # name also matches, because the name survives inside the SSO `next=` query
+          # parameter. A check built that way passes against a completely broken deploy.
           #
-          # The body is asserted as well. A status code alone cannot tell the real landing
-          # page apart from a Vercel error page or a rewrite that still answers 200, and
-          # the app's own name in the payload is what makes this check specific to it.
-          base="${{ steps.deploy.outputs.url }}"
+          # The *production alias* is public and is what the deploy is for, so that is the
+          # URL pinned here.
+          #
+          # The assertion string comes from the landing page's own metadata rather than from
+          # the project name, precisely because the project name is present in the SSO
+          # redirect too. "Borderless P2P Lending" exists only in the served application.
+          marker="Borderless P2P Lending"
+
           body=$(mktemp)
-          code=$(curl -sSL -o "$body" -w '%{http_code}' --max-time 30 --max-redirs 5 \
-            --retry 5 --retry-delay 5 "$base")
-          echo "$base -> $code (root, after following the locale redirect)"
+          out=$(curl -sSL -o "$body" -w '%{http_code}\n%{url_effective}' \
+            --max-time 30 --max-redirs 5 --retry 5 --retry-delay 5 "$PRODUCTION_URL")
+          code=$(printf '%s' "$out" | sed -n 1p)
+          effective=$(printf '%s' "$out" | sed -n 2p)
+          echo "$PRODUCTION_URL -> $code (final: $effective)"
+
+          # The root is expected to redirect: `next-intl` runs a `localePrefix: "always"`
+          # middleware, so `/` negotiates to `/en`. Redirects are followed so the pinned code
+          # reflects the page finally served, and the check never asserts a status the
+          # application is not supposed to return.
           test "$code" = "200"
           test -s "$body"
-          grep -qi "zizalend" "$body" || {
-            echo "::error::$base answered $code but did not serve the application"
+
+          # A redirect that ends on Vercel's own site means Deployment Protection or an
+          # alias misconfiguration intercepted the request. That must fail, not pass.
+          host=$(printf '%s' "$effective" | awk -F/ '{print $3}')
+          case "$host" in
+            vercel.com|*.vercel.com)
+              echo "::error::$PRODUCTION_URL resolved to $effective — the check reached Vercel, not the application"
+              exit 1
+              ;;
+          esac
+
+          grep -q "$marker" "$body" || {
+            echo "::error::$effective answered $code but did not serve the application (missing: $marker)"
             exit 1
           }
+          echo "✓ $effective serves the application"
 
-          # The entry point the locale middleware rewrites to is checked directly too, so a
-          # broken negotiation cannot hide behind a root that happens to redirect correctly.
-          en_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 5 --retry-delay 5 \
-            "$base/en")
-          echo "$base/en -> $en_code"
-          test "$en_code" = "200"
+          # When a protection-bypass secret is configured the deployment URL can be checked
+          # directly, which is the one thing the alias cannot prove: that *this* build, and
+          # not an older promotion, is the one answering. Without the secret the deployment
+          # URL is unreachable anonymously, and asserting it anyway is how the lie started.
+          if [ -n "${BYPASS_SECRET:-}" ]; then
+            bp=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 5 --retry-delay 5 \
+              -H "x-vercel-protection-bypass: $BYPASS_SECRET" \
+              "${{ steps.deploy.outputs.url }}/en")
+            echo "${{ steps.deploy.outputs.url }}/en (bypass) -> $bp"
+            test "$bp" = "200"
+          else
+            echo "No VERCEL_AUTOMATION_BYPASS_SECRET: the deployment URL is behind Deployment Protection."
+            echo "Asserting the public production alias only; the alias is promoted to this build by --prod."
+          fi
 
       - name: Summarise
         run: |
