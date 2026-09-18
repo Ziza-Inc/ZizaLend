@@ -68,13 +68,17 @@ pub enum GovernanceError {
     ThresholdNotMet = 4011,
     DelayTooShort = 4012,
     EmptySignerList = 4013,
-    ReproposalCooldownActive = 4015,
-    ProposalExpired = 4016,
-    ProposalNotExpired = 4017,
-    ProposalIdMismatch = 4018,
-    ProposalNotActive = 4019,
-    DuplicateSigner = 4020,
-    DelayTooLong = 4021,
+
+    // Codes in this block are contiguous on purpose: a gap invites the question of whether
+    // a variant was removed, and answerable only by reading the history. Nothing is
+    // deployed yet (see docs/deployed-contracts.md), so renumbering is free.
+    ReproposalCooldownActive = 4014,
+    ProposalExpired = 4015,
+    ProposalNotExpired = 4016,
+    ProposalIdMismatch = 4017,
+    ProposalNotActive = 4018,
+    DuplicateSigner = 4019,
+    DelayTooLong = 4020,
 }
 
 /// Status of a pending admin transfer proposal.

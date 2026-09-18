@@ -17,7 +17,6 @@ pub trait RemittanceNftInterface {
     /// whether a credit is worthwhile before making a call that would otherwise fail
     /// the whole repayment transaction.
     fn get_min_repayment_amount(env: Env) -> i128;
-    fn seize_collateral(env: Env, user: Address, minter: Option<Address>);
     fn is_seized(env: Env, user: Address) -> bool;
     fn record_default(env: Env, user: Address, minter: Option<Address>);
     fn is_authorized_minter(env: Env, minter: Address) -> bool;

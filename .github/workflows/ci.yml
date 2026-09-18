@@ -380,8 +380,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
      
+      # Pinned to the toolchain contracts/rust-toolchain.toml declares, rather than
+      # `stable`. That file makes rustup resolve the compiler for anything run under
+      # contracts/, so installing `stable` here tested a toolchain the repository does not
+      # use and left the real one to be fetched mid-run.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.85.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
