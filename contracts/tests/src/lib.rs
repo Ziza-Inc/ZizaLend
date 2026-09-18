@@ -170,7 +170,10 @@ mod tests {
         env.ledger()
             .set_sequence_number(env.ledger().sequence() + 5_000);
 
-        let loan = manager.get_loan(&loan_id);
+        // `get_loan_accrued` is the projection: it reports what the debt is now without
+        // writing anything. `get_loan` would still show no accrual, because nothing has
+        // happened to the loan yet.
+        let loan = manager.get_loan_accrued(&loan_id);
         assert!(loan.accrued_interest > 0, "Interest should have accrued");
 
         // ═══════════════════════════════════════════════════════════════════
@@ -180,7 +183,7 @@ mod tests {
         let borrower_balance_before_repay = token_client.balance(&borrower);
 
         // Calculate total debt (principal + accrued interest + late fees)
-        let loan = manager.get_loan(&loan_id);
+        let loan = manager.get_loan_accrued(&loan_id);
         let total_debt = loan
             .amount
             .checked_add(loan.accrued_interest)

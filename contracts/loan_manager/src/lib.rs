@@ -1293,7 +1293,36 @@ impl LoanManager {
         Ok(())
     }
 
+    /// The loan exactly as it is stored.
+    ///
+    /// A pure read. The interest and late-fee figures are those as of the last
+    /// state-changing call that touched this loan, together with the ledger markers
+    /// recording when that was -- so a caller can always tell stored state from a
+    /// projection. Use [`Self::get_loan_accrued`] for what the debt would be now.
+    ///
+    /// This previously accrued interest into a local copy and returned that copy without
+    /// persisting it. The value it returned therefore described a state that did not
+    /// exist -- `last_interest_ledger` advanced in the returned struct but not in storage
+    /// -- and it could fail with `AmountTooLarge` for a loan that reads perfectly well.
     pub fn get_loan(env: Env, loan_id: u32) -> Result<Loan, LoanError> {
+        let loan_key = DataKey::Loan(loan_id);
+        let loan: Loan = env
+            .storage()
+            .persistent()
+            .get(&loan_key)
+            .ok_or(LoanError::LoanNotFound)?;
+        Self::bump_persistent_ttl(&env, &loan_key);
+        Ok(loan)
+    }
+
+    /// The loan with interest and late fees accrued up to the current ledger.
+    ///
+    /// The accrual runs over a copy and is deliberately *not* persisted: this is a view,
+    /// and a view must not be able to mutate someone else's loan -- nor should reading a
+    /// loan be a way to change it. Nothing is lost by not persisting, because accrual is
+    /// a deterministic function of the stored ledger markers and the loan's own rate and
+    /// term, so the next state-changing call derives exactly these figures again.
+    pub fn get_loan_accrued(env: Env, loan_id: u32) -> Result<Loan, LoanError> {
         let loan_key = DataKey::Loan(loan_id);
         let mut loan: Loan = env
             .storage()
@@ -1301,7 +1330,7 @@ impl LoanManager {
             .get(&loan_key)
             .ok_or(LoanError::LoanNotFound)?;
         Self::bump_persistent_ttl(&env, &loan_key);
-        let _ = Self::current_total_debt(&env, &mut loan)?;
+        Self::current_total_debt(&env, &mut loan)?;
         Ok(loan)
     }
 

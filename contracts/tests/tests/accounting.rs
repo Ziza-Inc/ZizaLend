@@ -152,7 +152,10 @@ fn repayment_returns_principal_and_interest_to_idle() {
         .ledger()
         .set_sequence_number(f.env.ledger().sequence() + 5_000);
 
-    let loan = manager.get_loan(&loan_id);
+    // The projection: interest is a function of elapsed ledgers, and this reads it
+    // without writing it. `get_loan` still reports no accrual because nothing has
+    // happened to the loan yet.
+    let loan = manager.get_loan_accrued(&loan_id);
     let interest = loan.accrued_interest;
     assert!(interest > 0, "interest should have accrued");
 

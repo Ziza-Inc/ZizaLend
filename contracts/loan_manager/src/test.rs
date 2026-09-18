@@ -849,6 +849,68 @@ fn test_repayment_survives_refused_score_write() {
     assert!(skipped, "the skipped credit must be observable");
 }
 
+/// `get_loan` must report *stored* state, with accrual projection kept separate.
+///
+/// `get_loan` used to accrue interest into a local copy and return that copy without
+/// persisting it, so the struct it handed back described a state that did not exist:
+/// `last_interest_ledger` advanced in the value but not in storage, while the stored debt
+/// was unchanged. A reader could not tell stored state from a projection, and the read
+/// could fail with `AmountTooLarge` for a loan that reads perfectly well. The two
+/// behaviours are now separate functions whose names say which is which.
+#[test]
+fn test_get_loan_reports_stored_state_with_accrual_as_a_separate_projection() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = BytesN::from_array(&env, &[6u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+
+    env.ledger().set_sequence_number(1);
+    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    manager.approve_loan(&loan_id);
+
+    let stored = manager.get_loan(&loan_id);
+    assert_eq!(stored.accrued_interest, 0);
+    let approved_ledger = stored.last_interest_ledger;
+
+    // A full term passes. Nothing has *happened* to the loan, so nothing is stored.
+    env.ledger().set_sequence_number(approved_ledger + 17280);
+
+    let still_stored = manager.get_loan(&loan_id);
+    assert_eq!(
+        still_stored.accrued_interest, 0,
+        "reading a loan must not report simulated accrual as stored state"
+    );
+    assert_eq!(still_stored.last_interest_ledger, approved_ledger);
+
+    // The projection reports what the debt is now: one term at the loan's own 1,200 bps
+    // on 1,000 principal.
+    let projected = manager.get_loan_accrued(&loan_id);
+    assert_eq!(projected.accrued_interest, 120);
+    assert_eq!(projected.last_interest_ledger, approved_ledger + 17280);
+
+    // And only a real state change writes it, deriving exactly the projected figures.
+    manager.repay(&borrower, &loan_id, &500);
+    let persisted = manager.get_loan(&loan_id);
+    assert_eq!(
+        persisted.last_interest_ledger, projected.last_interest_ledger,
+        "a state change must derive the same accrual the projection reported"
+    );
+    assert!(persisted.last_interest_ledger > approved_ledger);
+}
+
 #[test]
 fn test_partial_repayment_tracks_split_balances() {
     let env = Env::default();
@@ -1677,7 +1739,7 @@ fn test_interest_accrues_over_the_loans_own_term_not_a_global_default() {
     env.ledger().set_sequence_number(1 + LONG_TERM);
 
     let expected_interest = (principal * rate_bps as i128) / 10_000;
-    let loan = manager.get_loan(&loan_id);
+    let loan = manager.get_loan_accrued(&loan_id);
     assert_eq!(
         loan.accrued_interest, expected_interest,
         "one full term must accrue exactly the quoted per-term rate; dividing by the \
@@ -1724,7 +1786,7 @@ fn test_late_fee_accrues_over_the_loans_own_term_not_a_global_default() {
     env.ledger().set_sequence_number(due_date + LONG_TERM);
 
     let expected_late_fee = (principal * 500) / 10_000;
-    let loan = manager.get_loan(&loan_id);
+    let loan = manager.get_loan_accrued(&loan_id);
     assert_eq!(
         loan.accrued_late_fee, expected_late_fee,
         "one overdue term must charge exactly the quoted per-term late fee"
@@ -3266,7 +3328,7 @@ fn test_late_fee_cap_at_total_debt_limit() {
     env.ledger()
         .set_sequence_number(env.ledger().sequence() + 100_000);
 
-    let loan = manager.get_loan(&loan_id);
+    let loan = manager.get_loan_accrued(&loan_id);
     let total_outstanding = (loan.amount + loan.accrued_interest + loan.accrued_late_fee)
         - (loan.principal_paid + loan.interest_paid + loan.late_fee_paid);
 
