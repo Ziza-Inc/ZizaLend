@@ -28,6 +28,7 @@ function getErrorType(statusCode: number, errorCode?: string): ErrorType {
   if (statusCode === 401) return 'AUTH';
   if (statusCode === 403) return 'AUTHORIZATION';
   if (statusCode === 404) return 'NOT_FOUND';
+  if (statusCode === 405) return 'VALIDATION';
   if (statusCode === 409) return 'CONFLICT';
   if (statusCode === 413) return 'VALIDATION';
   if (statusCode === 429) return 'RATE_LIMIT';
@@ -189,6 +190,34 @@ export const errorHandler = (
     return;
   }
 
+  // ── Malformed JSON body (body-parser) ──────────────────────
+  // `express.json()` raises a SyntaxError with type "entity.parse.failed"
+  // when the body is not valid JSON. Without this branch it fell through to
+  // the generic 500 handler, so a client typo looked like a server outage.
+  if (
+    err instanceof SyntaxError &&
+    'type' in err &&
+    (err as { type?: string }).type === 'entity.parse.failed'
+  ) {
+    logger.warn('Malformed JSON request body', {
+      requestId,
+      path: req.path,
+      method: req.method,
+    });
+
+    res
+      .status(400)
+      .json(
+        buildErrorResponse(
+          400,
+          'Request body is not valid JSON',
+          ErrorCode.INVALID_JSON,
+          requestId,
+        ),
+      );
+    return;
+  }
+
   // ── Payload Too Large (body-parser) ────────────────────────
   if ('type' in err && (err as { type?: string }).type === 'entity.too.large') {
     logger.warn('Request payload too large', {
@@ -200,7 +229,12 @@ export const errorHandler = (
     res
       .status(413)
       .json(
-        buildErrorResponse(413, 'Request payload too large', ErrorCode.VALIDATION_ERROR, requestId),
+        buildErrorResponse(
+          413,
+          'Request payload too large',
+          ErrorCode.PAYLOAD_TOO_LARGE,
+          requestId,
+        ),
       );
     return;
   }

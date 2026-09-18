@@ -94,8 +94,21 @@ describe('Centralized Error Handling', () => {
 
       expect(response.status).toBe(413);
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
       expect(response.body.error.message).toMatch(/payload too large|request entity too large/i);
+      expect(response.body.error.type).toBe('VALIDATION');
+    });
+
+    it('should return 400 with INVALID_JSON for a malformed JSON body', async () => {
+      const response = await request(app)
+        .post('/api/simulate')
+        .set('Authorization', authHeader)
+        .set('Content-Type', 'application/json')
+        .send('{"amount": }');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('INVALID_JSON');
       expect(response.body.error.type).toBe('VALIDATION');
     });
   });
