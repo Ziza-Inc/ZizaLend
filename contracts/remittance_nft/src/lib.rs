@@ -69,6 +69,11 @@ pub enum DataKey {
     /// The single contract permitted to move a borrower's score on the routine
     /// path (`update_score`, `decrease_score`).
     ScoreRecorder,
+    /// Highest version whose one-time migration has run. See `migrate`.
+    ///
+    /// Appended at the end deliberately: `#[contracttype]` encodes the variant index,
+    /// so inserting this anywhere but last would renumber the keys already in storage.
+    MigratedVersion,
 }
 
 #[contract]
@@ -442,6 +447,12 @@ impl RemittanceNFT {
         env.storage()
             .instance()
             .set(&DataKey::Version, &Self::CURRENT_VERSION);
+        // A fresh deployment is created entirely by this function, so it is already at
+        // the current version and needs no migration. Recording that here is what lets
+        // `migrate`'s guard mean something on a brand-new contract.
+        env.storage()
+            .instance()
+            .set(&DataKey::MigratedVersion, &Self::CURRENT_VERSION);
         env.storage().instance().set(&DataKey::Paused, &false);
         Self::bump_instance_ttl(&env);
         // Admin is automatically authorized to mint
@@ -487,17 +498,49 @@ impl RemittanceNFT {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
+    /// Apply this version's one-time state migration.
+    ///
+    /// Guarded against double execution, using the same `MigratedVersion` marker the
+    /// LoanManager already uses. The migration body is idempotent today -- it only
+    /// writes a default that is skipped when already present -- but the guard is what
+    /// makes "one-time" true rather than merely hoped for. Without it there is nothing
+    /// distinguishing a fresh upgrade from a rerun, so the first migration that is not
+    /// naturally idempotent would be silently applied again on every call, and there is
+    /// no way for the contract to detect it after the fact.
+    ///
+    /// `Version` is only ever moved forwards. `upgrade` advances it independently of
+    /// migration, so a contract upgraded twice without migrating in between holds a
+    /// version above `CURRENT_VERSION`; stamping `CURRENT_VERSION` unconditionally would
+    /// move that backwards and report the deployed bytecode as older than it is.
     pub fn migrate(env: Env) {
         Self::admin(&env).require_auth();
 
+        let last_migrated_version: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MigratedVersion)
+            .unwrap_or(0);
+
+        // Already migrated to this version or later: nothing to do.
+        if last_migrated_version >= Self::CURRENT_VERSION {
+            return;
+        }
+
+        // Initialize new storage keys with defaults if they don't exist.
         if !env.storage().instance().has(&Self::burn_threshold_key()) {
             env.storage()
                 .instance()
                 .set(&Self::burn_threshold_key(), &Self::DEFAULT_BURN_THRESHOLD);
         }
+
+        let stored_version = Self::version(env.clone());
+        env.storage().instance().set(
+            &DataKey::Version,
+            &stored_version.max(Self::CURRENT_VERSION),
+        );
         env.storage()
             .instance()
-            .set(&DataKey::Version, &Self::CURRENT_VERSION);
+            .set(&DataKey::MigratedVersion, &Self::CURRENT_VERSION);
         Self::bump_instance_ttl(&env);
     }
 

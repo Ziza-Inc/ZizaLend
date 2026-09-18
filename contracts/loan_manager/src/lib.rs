@@ -1048,10 +1048,19 @@ impl LoanManager {
             .instance()
             .set(&DataKey::LateFeeRateBps, &late_fee_rate);
 
-        // Update contract version and mark migration as complete
-        env.storage()
-            .instance()
-            .set(&DataKey::Version, &Self::CURRENT_VERSION);
+        // Update contract version and mark migration as complete.
+        //
+        // `Version` is only moved forwards: `upgrade` advances it independently of
+        // migration, so a contract upgraded twice without migrating in between holds a
+        // version above `CURRENT_VERSION`, and stamping `CURRENT_VERSION` unconditionally
+        // would move that backwards and misreport the deployed bytecode as older than it
+        // is. `MigratedVersion` records what this migration applied, so it is set to the
+        // version being migrated *to*.
+        let stored_version = Self::version(env.clone());
+        env.storage().instance().set(
+            &DataKey::Version,
+            &stored_version.max(Self::CURRENT_VERSION),
+        );
         env.storage()
             .instance()
             .set(&DataKey::MigratedVersion, &Self::CURRENT_VERSION);

@@ -2334,3 +2334,77 @@ fn test_admin_remint_rejects_an_invalid_uri() {
     );
     assert_eq!(client.get_score(&user), 500);
 }
+
+/// A migration must not run twice for the same version.
+///
+/// `migrate` had no guard at all: it re-applied its writes on every call and stamped
+/// `Version = CURRENT_VERSION` unconditionally. The body is idempotent today, so nothing
+/// is broken yet -- which is precisely why the guard has to exist before it matters. This
+/// test reproduces the state a second call sees (marker already at the current version,
+/// with a key the migration would recreate removed by hand) and asserts that the
+/// migration stays out of the way.
+#[test]
+fn test_migrate_is_guarded_against_double_execution() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::MigratedVersion, &RemittanceNFT::CURRENT_VERSION);
+        env.storage()
+            .instance()
+            .remove(&RemittanceNFT::burn_threshold_key());
+    });
+
+    client.migrate();
+
+    let recreated = env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .has(&RemittanceNFT::burn_threshold_key())
+    });
+    assert!(
+        !recreated,
+        "a version whose migration already ran must not be migrated again"
+    );
+}
+
+/// A migration must never move the stored version backwards.
+///
+/// `upgrade` advances `Version` on its own, so a contract upgraded twice without a
+/// migration in between holds a version above `CURRENT_VERSION`. Stamping
+/// `CURRENT_VERSION` unconditionally would report the deployed bytecode as older than it
+/// is -- a claim an operator relies on when deciding what is safe to run.
+#[test]
+fn test_migrate_never_moves_the_version_backwards() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(RemittanceNFT, ());
+    let client = RemittanceNFTClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let ahead_of_current = RemittanceNFT::CURRENT_VERSION + 3;
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &ahead_of_current);
+        // No migration has run for this deployment.
+        env.storage().instance().remove(&DataKey::MigratedVersion);
+    });
+
+    client.migrate();
+
+    assert_eq!(
+        client.version(),
+        ahead_of_current,
+        "a migration must not report a newer contract as older"
+    );
+}

@@ -234,6 +234,37 @@ fn test_migration_guard_prevents_double_execution() {
     assert_eq!(loan_after.amount, 1000);
 }
 
+/// A migration must never move the stored version backwards.
+///
+/// `upgrade` advances `Version` on its own, so a contract upgraded twice without a
+/// migration in between holds a version above `CURRENT_VERSION`. Stamping
+/// `CURRENT_VERSION` unconditionally would report the deployed bytecode as older than it
+/// is -- a claim an operator relies on when deciding what is safe to run.
+#[test]
+fn test_migrate_never_moves_the_version_backwards() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, _nft_client, _pool_client, _token_id, _admin) = setup_test(&env);
+
+    let ahead_of_current = LoanManager::CURRENT_VERSION + 3;
+    env.as_contract(&manager.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &ahead_of_current);
+        // No migration has run for this deployment.
+        env.storage().instance().remove(&DataKey::MigratedVersion);
+    });
+
+    manager.migrate();
+
+    assert_eq!(
+        manager.version(),
+        ahead_of_current,
+        "a migration must not report a newer contract as older"
+    );
+}
+
 #[test]
 fn test_loan_request_success() {
     let env = Env::default();
