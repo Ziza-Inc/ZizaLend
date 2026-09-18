@@ -105,8 +105,6 @@ pub enum DataKey {
     DepositorCount(Address),
     /// token → cumulative yield explicitly distributed to the pool
     TotalYieldDistributed(Address),
-    /// token → accumulated rounding dust from all deposit/withdraw operations
-    AccumulatedDust,
     ProposedAdmin,
     Version,
     /// Address of the LoanManager contract permitted to disburse principal and
@@ -334,30 +332,6 @@ impl LendingPool {
         }
     }
 
-    /// Immutable collection of rounding dust accumulated across all
-    /// deposit/withdraw operations. This value represents the sum of
-    /// rounding truncations that would otherwise be lost forever.
-    ///
-    /// Admin can retrieve this dust via `collect_dust()`.
-    fn accumulated_dust(env: &Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::AccumulatedDust)
-            .unwrap_or(0)
-    }
-
-    /// Track rounding dust from a single operation.
-    fn track_dust(env: &Env, dust_amount: i128) {
-        if dust_amount <= 0 {
-            return;
-        }
-        let current = Self::accumulated_dust(env);
-        let updated = current.checked_add(dust_amount).expect("dust overflow");
-        env.storage()
-            .instance()
-            .set(&DataKey::AccumulatedDust, &updated);
-    }
-
     fn assert_withdrawal_cooldown_elapsed(env: &Env, provider: &Address, token: &Address) {
         let cooldown = Self::withdrawal_cooldown(env);
         if cooldown == 0 {
@@ -397,18 +371,13 @@ impl LendingPool {
             return Err(PoolError::InvalidAmount);
         }
 
-        // Track rounding dust from share-to-asset conversion.
-        // Due to integer division in calc_assets_to_redeem, the actual
-        // transfer amount may be slightly less than the proportional
-        // share value. We collect the dust so it doesn't accumulate
-        // as unclaimed value in the pool.
-        let expected_value = shares
-            .checked_mul(total_assets)
-            .and_then(|v| v.checked_div(cur_total_shares))
-            .expect("expected value overflow");
-        let rounding_dust = expected_value.checked_sub(assets_to_return).unwrap_or(0);
-        Self::track_dust(env, rounding_dust);
-
+        // `calc_assets_to_redeem` floors, so the redeemer receives at most their
+        // proportional claim and any truncated remainder stays in the pool. That
+        // is not lost value and must not be paid out: it raises the value of every
+        // remaining share, making the share price non-decreasing across
+        // redemptions. Paying it to the admin would extract value from holders and
+        // would break `total_pool_assets = idle + outstanding`, because assets
+        // would leave without any shares being burned.
         let idle_balance = Self::read_pool_balance(env, token);
         if assets_to_return > idle_balance {
             return Err(PoolError::InsufficientLiquidity);
@@ -465,9 +434,8 @@ impl LendingPool {
     /// Initialize the LendingPool contract with an admin address.
     ///
     /// Called once at deployment. Sets the initial admin, unpaused state,
-    /// default withdrawal cooldown, version, and zero-initializes the dust
-    /// accumulator. Reverts with [`PoolError::AlreadyInitialized`] if called
-    /// a second time.
+    /// default withdrawal cooldown, and version. Reverts with
+    /// [`PoolError::AlreadyInitialized`] if called a second time.
     pub fn initialize(env: Env, admin: Address) -> Result<(), PoolError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(PoolError::AlreadyInitialized);
@@ -838,38 +806,6 @@ impl LendingPool {
 
         deposit_ledger.saturating_add(cooldown)
     }
-    /// Collect accumulated rounding dust from the contract and send it to
-    /// the admin. This prevents value loss from integer division rounding
-    /// across many deposit/withdraw operations.
-    ///
-    /// Requires admin authorization.
-    pub fn collect_dust(env: Env, token: Address) -> i128 {
-        Self::admin(&env).require_auth();
-
-        let dust = Self::accumulated_dust(&env);
-        if dust <= 0 {
-            return 0;
-        }
-
-        env.storage()
-            .instance()
-            .set(&DataKey::AccumulatedDust, &0i128);
-
-        TokenClient::new(&env, &token).transfer(
-            &env.current_contract_address(),
-            &Self::admin(&env),
-            &dust,
-        );
-
-        events::dust_collected(&env, dust);
-        dust
-    }
-
-    /// Get the current amount of accumulated rounding dust.
-    pub fn get_accumulated_dust(env: Env) -> i128 {
-        Self::accumulated_dust(&env)
-    }
-
     /// Number of ledgers remaining before the provider may withdraw from `token`.
     ///
     /// Returns 0 when no cooldown is active, the cooldown has already expired,

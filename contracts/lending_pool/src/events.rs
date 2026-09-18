@@ -68,14 +68,6 @@ pub fn admin_transferred(env: &Env, previous_admin: Address, new_admin: Address,
     env.events().publish(topics, (previous_admin, new_admin));
 }
 
-/// Emitted when the admin collects accumulated rounding dust from
-/// deposit/withdraw operations. Dust arises from integer division
-/// in share-to-asset conversion.
-pub fn dust_collected(env: &Env, amount: i128) {
-    let topics = (Symbol::new(env, "DustCollected"),);
-    env.events().publish(topics, amount);
-}
-
 /// Emitted when the pool disburses principal to a borrower at the
 /// LoanManager's request. This is the only path by which principal leaves the
 /// pool, so off-chain indexers should treat it as the canonical "loan funded"

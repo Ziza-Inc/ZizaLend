@@ -195,7 +195,7 @@ Note: `--test-threads=1` is required because Soroban test environments share sta
 contracts/
 ├── remittance_nft/src/test.rs     # Mint, score updates, transfer, authorization
 ├── loan_manager/src/test.rs       # Loan lifecycle, collateral, liquidation
-├── lending_pool/src/test.rs       # Deposit, withdraw, share price, dust
+├── lending_pool/src/test.rs       # Deposit, withdraw, share price
 ├── lending_pool/src/test/
 │   └── property_tests.rs          # Property-based tests
 ├── multisig_governance/src/test.rs # Proposals, approvals, timelock

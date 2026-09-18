@@ -59,8 +59,10 @@ fn setup(deposit: i128) -> Fixture {
     // The pool must be told which contract may request disbursements.
     pool.set_loan_manager(&manager_id);
 
-    stellar.mint(&lender, &deposit);
-    pool.deposit(&lender, &token_id, &deposit);
+    if deposit > 0 {
+        stellar.mint(&lender, &deposit);
+        pool.deposit(&lender, &token_id, &deposit);
+    }
 
     // Interest accrual short-circuits at ledger 0, so fund at ledger 1.
     env.ledger().set_sequence_number(1);
@@ -233,5 +235,67 @@ fn liquidity_check_compares_against_idle_balance_only() {
     assert!(
         result.is_err(),
         "with no idle liquidity left, approval must be refused"
+    );
+}
+
+/// The truncation remainder from a floored redemption stays in the pool and
+/// accrues to the remaining holders. It is deliberately never extracted.
+///
+/// This replaces the removed `collect_dust` mechanism, which was wrong three
+/// ways: it computed `expected_value - assets_to_return` where both operands were
+/// the same expression, so it always recorded zero; it stored a single global
+/// counter while `collect_dust(token)` paid out in a caller-chosen token, so dust
+/// accrued in one market could be drained from another; and had the computation
+/// been fixed it would have leaked LP value to the admin, breaking
+/// `total_pool_assets = idle + outstanding` since assets would leave with no
+/// shares burned.
+#[test]
+fn truncating_redemption_accrues_to_remaining_holders() {
+    let f = setup(0);
+    let pool = LendingPoolClient::new(&f.env, &f.pool_id);
+    let token = TokenClient::new(&f.env, &f.token_id);
+    let stellar = StellarAssetClient::new(&f.env, &f.token_id);
+
+    let a = Address::generate(&f.env);
+    let b = Address::generate(&f.env);
+
+    // Equal deposits, so shares and assets start equal at 1:1. Amounts must clear
+    // MIN_DEPOSIT_AMOUNT (100).
+    stellar.mint(&a, &300);
+    stellar.mint(&b, &300);
+    pool.deposit(&a, &f.token_id, &300);
+    pool.deposit(&b, &f.token_id, &300);
+    assert_eq!(pool.get_share_price(&f.token_id), SHARE_PRICE_SCALE);
+
+    // Simulate one unit of yield arriving in the pool. Assets (601) now exceed
+    // shares (600), so redemption has to floor.
+    stellar.mint(&f.pool_id, &1);
+    let price_before = pool.get_share_price(&f.token_id);
+    assert_eq!(price_before, 1_001_666);
+
+    // Advance past the minimum share hold time, then redeem one share.
+    f.env
+        .ledger()
+        .set_sequence_number(f.env.ledger().sequence() + 10);
+    pool.withdraw(&a, &f.token_id, &1);
+
+    // The redeemer received floor(1 * 601 / 600) == 1, not 1.00166...
+    assert_eq!(token.balance(&a), 1);
+    // The truncated remainder stayed in the pool...
+    assert_eq!(token.balance(&f.pool_id), 600);
+    // ...so the remaining shares became worth more, not less.
+    assert!(
+        pool.get_share_price(&f.token_id) > price_before,
+        "a floored redemption must raise, never lower, the share price"
+    );
+    // Nothing was extracted to the admin.
+    assert_eq!(token.balance(&pool.get_admin()), 0);
+    // The pool still covers every remaining holder's claim, with the remainder
+    // sitting on top as unclaimed dust owned by the remaining shares.
+    let a_claim = pool.get_deposit(&a, &f.token_id);
+    let b_claim = pool.get_deposit(&b, &f.token_id);
+    assert!(
+        a_claim + b_claim <= token.balance(&f.pool_id),
+        "the pool must hold at least the sum of all holders' claims"
     );
 }
