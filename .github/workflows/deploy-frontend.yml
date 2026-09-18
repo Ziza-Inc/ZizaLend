@@ -113,10 +113,36 @@ jobs:
           set -euo pipefail
           # A deployment can report success while the alias serves a stale build, so the
           # published URL is fetched rather than trusted.
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 5 --retry-delay 5 \
-            "${{ steps.deploy.outputs.url }}")
-          echo "${{ steps.deploy.outputs.url }} -> $code"
+          #
+          # The root is fetched with redirects followed, deliberately. `next-intl` runs a
+          # `localePrefix: "always"` middleware, so `/` answers 307 — 302 on the
+          # deployment-specific host — and negotiates to `/en`. Asserting 200 on the first
+          # response asserts something this application is never supposed to do, which is
+          # why this step was red on every run while the deploy above it succeeded. The
+          # claim worth checking is that the journey from the root ends on a served page,
+          # so the redirect is followed and the final code is what gets pinned.
+          #
+          # The body is asserted as well. A status code alone cannot tell the real landing
+          # page apart from a Vercel error page or a rewrite that still answers 200, and
+          # the app's own name in the payload is what makes this check specific to it.
+          base="${{ steps.deploy.outputs.url }}"
+          body=$(mktemp)
+          code=$(curl -sSL -o "$body" -w '%{http_code}' --max-time 30 --max-redirs 5 \
+            --retry 5 --retry-delay 5 "$base")
+          echo "$base -> $code (root, after following the locale redirect)"
           test "$code" = "200"
+          test -s "$body"
+          grep -qi "zizalend" "$body" || {
+            echo "::error::$base answered $code but did not serve the application"
+            exit 1
+          }
+
+          # The entry point the locale middleware rewrites to is checked directly too, so a
+          # broken negotiation cannot hide behind a root that happens to redirect correctly.
+          en_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 5 --retry-delay 5 \
+            "$base/en")
+          echo "$base/en -> $en_code"
+          test "$en_code" = "200"
 
       - name: Summarise
         run: |
