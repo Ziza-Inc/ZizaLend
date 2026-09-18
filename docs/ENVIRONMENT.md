@@ -22,7 +22,9 @@ This document lists every environment variable used by the ZizaLend platform. Ea
 | `LOAN_MANAGER_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Deployed loan manager contract address | `backend/src/config/stellar.ts` |
 | `REMITTANCE_NFT_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Deployed remittance NFT contract address | `backend/src/config/contracts.ts` |
 | `LENDING_POOL_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Deployed lending pool contract address | `backend/src/config/stellar.ts` |
-| `MULTISIG_GOVERNANCE_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Deployed multisig governance contract address | `backend/src/config/contracts.ts` |
+| `MULTISIG_GOVERNANCE_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Governance instance that governs the LoanManager (reported by `GET /version`) | `backend/src/config/contracts.ts` |
+| `POOL_GOVERNANCE_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Governance instance that governs the LendingPool | `backend/src/app.ts` |
+| `NFT_GOVERNANCE_CONTRACT_ID` | ✓ | ✓ | ✓ | — | Governance instance that governs the RemittanceNFT | `backend/src/app.ts` |
 | `POOL_TOKEN_ADDRESS` | ✓ | ✓ | ✓ | — | Pool token contract address | `backend/src/config/stellar.ts` |
 | `STELLAR_USDC_ISSUER` | — | ✓ | ✓ | — | USDC asset issuer address | `backend/src/config/stellar.ts` |
 | `STELLAR_EURC_ISSUER` | — | ✓ | ✓ | — | EURC asset issuer address | `backend/src/config/stellar.ts` |
@@ -91,6 +93,10 @@ This document lists every environment variable used by the ZizaLend platform. Ea
 | `NEXT_PUBLIC_MANAGER_CONTRACT_ID`  | ✓   | ✓       | ✓    | —                                         | Loan manager contract ID for Soroban calls            | `frontend/src/app/hooks/useApi.ts`          |
 | `NEXT_PUBLIC_LOAN_MANAGER_CONTRACT_ID` | ✓ | ✓     | ✓    | —                                         | Alias for NEXT_PUBLIC_MANAGER_CONTRACT_ID             | `frontend/src/app/hooks/useApi.ts`          |
 | `NEXT_PUBLIC_NFT_CONTRACT_ID`      | ✓   | ✓       | ✓    | —                                         | Remittance NFT contract ID                            | `frontend/src/app/hooks/useApi.ts`          |
+| `NEXT_PUBLIC_POOL_CONTRACT_ID`     | ✓   | ✓       | ✓    | —                                         | Lending pool contract ID                              | `scripts/deploy.ts`                         |
+| `NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID` | ✓ | ✓       | ✓    | —                                         | Governance instance for the LoanManager (written by the deploy script) | `scripts/deploy.ts`                         |
+| `NEXT_PUBLIC_POOL_GOVERNANCE_CONTRACT_ID` | ✓ | ✓  | ✓    | —                                         | Governance instance for the LendingPool                | `scripts/deploy.ts`                         |
+| `NEXT_PUBLIC_NFT_GOVERNANCE_CONTRACT_ID` | ✓ | ✓    | ✓    | —                                         | Governance instance for the RemittanceNFT              | `scripts/deploy.ts`                         |
 
 ---
 

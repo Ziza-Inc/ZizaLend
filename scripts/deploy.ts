@@ -180,7 +180,7 @@ async function main() {
     console.log(`token : ${config.token}\n`);
 
     // ── 1. Upload all WASM binaries ─────────────────────────────────────────────
-    console.log('[1/4] Uploading WASM binaries…');
+    console.log('[1/5] Uploading WASM binaries…');
     const nftWasmHash = await uploadWasm(
         server,
         path.resolve(__dirname, config.contracts.remittance_nft.wasm),
@@ -207,7 +207,7 @@ async function main() {
     );
 
     // ── 2. Instantiate contracts ────────────────────────────────────────────────
-    console.log('\n[2/4] Creating contract instances…');
+    console.log('\n[2/5] Creating contract instances…');
 
     console.log('  RemittanceNFT');
     const nftContractId = await createInstance(server, nftWasmHash, contractSalt('nft'), account, passphrase);
@@ -221,9 +221,20 @@ async function main() {
     const managerContractId = await createInstance(server, managerWasmHash, contractSalt('manager'), account, passphrase);
     console.log(`    → ${managerContractId}`);
 
-    console.log('  Governance');
-    const govContractId = await createInstance(server, govWasmHash, contractSalt('governance'), account, passphrase);
-    console.log(`    → ${govContractId}`);
+    // One governance instance per governed contract. `MultisigGovernance::finalize_admin_transfer`
+    // invokes `set_admin` on the single target it was initialised with, so a shared
+    // instance could only ever hand over one of the three.
+    console.log('  Governance (governs LoanManager)');
+    const managerGovContractId = await createInstance(server, govWasmHash, contractSalt('governance-manager'), account, passphrase);
+    console.log(`    → ${managerGovContractId}`);
+
+    console.log('  Governance (governs LendingPool)');
+    const poolGovContractId = await createInstance(server, govWasmHash, contractSalt('governance-pool'), account, passphrase);
+    console.log(`    → ${poolGovContractId}`);
+
+    console.log('  Governance (governs RemittanceNFT)');
+    const nftGovContractId = await createInstance(server, govWasmHash, contractSalt('governance-nft'), account, passphrase);
+    console.log(`    → ${nftGovContractId}`);
 
     // ── 3. Initialize in dependency order ──────────────────────────────────────
     //
@@ -234,10 +245,10 @@ async function main() {
     //   c. LendingPool has no dependency on NFT or LoanManager at init time.
     //   d. LoanManager.initialize takes (nft, pool, token, admin) so both NFT and
     //      Pool addresses must be known first.
-    //   e. Governance.initialize takes (admin, target_contract). We point it at
-    //      LoanManager as the primary governed contract.
+    //   e. Each Governance.initialize takes (admin, target_contract), naming the one
+    //      contract that instance is allowed to hand the admin role to.
     //
-    console.log('\n[3/4] Initializing contracts…');
+    console.log('\n[3/5] Initializing contracts…');
 
     // NFT
     console.log('  NFT.initialize');
@@ -262,30 +273,94 @@ async function main() {
         passphrase,
     );
 
-    // Governance — target is LoanManager (the core protocol contract).
+    // Governance — one instance per governed contract.
     console.log('  Governance.initialize(target=LoanManager)');
-    await invoke(server, govContractId, 'initialize', [adminAddr, managerContractId], account, passphrase);
+    await invoke(server, managerGovContractId, 'initialize', [adminAddr, managerContractId], account, passphrase);
+    console.log('  Governance.initialize(target=LendingPool)');
+    await invoke(server, poolGovContractId, 'initialize', [adminAddr, poolContractId], account, passphrase);
+    console.log('  Governance.initialize(target=RemittanceNFT)');
+    await invoke(server, nftGovContractId, 'initialize', [adminAddr, nftContractId], account, passphrase);
 
-    // ── 4. Persist contract IDs ─────────────────────────────────────────────────
-    console.log('\n[4/4] Writing contract addresses to .env files…');
+    // ── 4. Wire the roles the protocol cannot run without ───────────────────────
+    //
+    // Every call below is mandatory. A deployment that skips one is not merely
+    // degraded: the failure it causes is described on each line, and in three of the
+    // five cases the protocol is unusable rather than merely misconfigured.
+    console.log('\n[4/5] Wiring contract roles…');
 
-    const envBlock = [
-        ``,
-        `# ZizaLend contracts — ${network} — ${new Date().toISOString()}`,
+    // Principal can only leave the pool through the pool itself (a contract address
+    // authorises only implicitly), so the pool must be told which LoanManager may ask
+    // it to disburse. Without this every `approve_loan` fails with `LoanManagerNotSet`.
+    console.log('  LendingPool.set_loan_manager(LoanManager)');
+    await invoke(server, poolContractId, 'set_loan_manager', [managerContractId], account, passphrase);
+
+    // Markets are fail-closed: deposits are refused for any token that has not been
+    // opened. Without this no lender can fund the pool at all.
+    console.log(`  LendingPool.allow_token(${config.token})`);
+    await invoke(server, poolContractId, 'allow_token', [config.token], account, passphrase);
+
+    // The NFT moves a borrower's score only at the request of its single configured
+    // recorder. Without this a repayment still succeeds, but never credits a score --
+    // and the omission is reported on-chain as `ScoreReportSkipped`.
+    console.log('  RemittanceNFT.set_score_recorder(LoanManager)');
+    await invoke(server, nftContractId, 'set_score_recorder', [managerContractId], account, passphrase);
+
+    // Hand admin rotation to governance on all three governed contracts. Once set, a
+    // contract's `set_admin` accepts the governance contract's authorisation only, so
+    // the single admin key can no longer replace the admin directly. These run after
+    // every admin-key configuration above, and the admin key keeps
+    // `propose_admin`/`accept_admin` as a two-step escape hatch if governance becomes
+    // unreachable.
+    console.log('  LendingPool.set_governance(...)');
+    await invoke(server, poolContractId, 'set_governance', [poolGovContractId], account, passphrase);
+    console.log('  LoanManager.set_governance(...)');
+    await invoke(server, managerContractId, 'set_governance', [managerGovContractId], account, passphrase);
+    console.log('  RemittanceNFT.set_governance(...)');
+    await invoke(server, nftContractId, 'set_governance', [nftGovContractId], account, passphrase);
+
+    // ── 5. Persist contract IDs ─────────────────────────────────────────────────
+    console.log('\n[5/5] Writing contract addresses to .env files…');
+
+    // The two runtimes read different names for the same values: the frontend reads
+    // `NEXT_PUBLIC_*`, the backend reads the unprefixed names (see backend/.env.example).
+    // Appending one shared block to both files is how the backend ended up holding
+    // `NEXT_PUBLIC_*` variables it never reads, and none of the IDs it does read.
+    const header = `\n# ZizaLend contracts — ${network} — ${new Date().toISOString()}`;
+
+    const frontendEnvBlock = [
+        header,
         `NEXT_PUBLIC_NFT_CONTRACT_ID=${nftContractId}`,
         `NEXT_PUBLIC_POOL_CONTRACT_ID=${poolContractId}`,
         `NEXT_PUBLIC_MANAGER_CONTRACT_ID=${managerContractId}`,
-        `NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID=${govContractId}`,
+        `NEXT_PUBLIC_LOAN_MANAGER_CONTRACT_ID=${managerContractId}`,
+        `NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID=${managerGovContractId}`,
+        `NEXT_PUBLIC_POOL_GOVERNANCE_CONTRACT_ID=${poolGovContractId}`,
+        `NEXT_PUBLIC_NFT_GOVERNANCE_CONTRACT_ID=${nftGovContractId}`,
     ].join('\n');
 
-    await fs.appendFile(path.join(__dirname, '../frontend/.env.local'), envBlock);
-    await fs.appendFile(path.join(__dirname, '../backend/.env'), envBlock);
+    const backendEnvBlock = [
+        header,
+        `REMITTANCE_NFT_CONTRACT_ID=${nftContractId}`,
+        `LENDING_POOL_CONTRACT_ID=${poolContractId}`,
+        `LOAN_MANAGER_CONTRACT_ID=${managerContractId}`,
+        `MULTISIG_GOVERNANCE_CONTRACT_ID=${managerGovContractId}`,
+        `POOL_GOVERNANCE_CONTRACT_ID=${poolGovContractId}`,
+        `NFT_GOVERNANCE_CONTRACT_ID=${nftGovContractId}`,
+        `POOL_TOKEN_ADDRESS=${config.token}`,
+    ].join('\n');
+
+    await fs.appendFile(path.join(__dirname, '../frontend/.env.local'), frontendEnvBlock);
+    await fs.appendFile(path.join(__dirname, '../backend/.env'), backendEnvBlock);
 
     console.log('\nDeployment complete.');
     console.log(`  RemittanceNFT  : ${nftContractId}`);
     console.log(`  LendingPool    : ${poolContractId}`);
     console.log(`  LoanManager    : ${managerContractId}`);
-    console.log(`  Governance     : ${govContractId}`);
+    console.log(`  Gov (manager)  : ${managerGovContractId}`);
+    console.log(`  Gov (pool)     : ${poolGovContractId}`);
+    console.log(`  Gov (nft)      : ${nftGovContractId}`);
+    console.log('\nNext: configure each governance instance\'s signer quorum with');
+    console.log('      propose_admin_transfer(...) before relying on it for a hand-off.');
 }
 
 main().catch(error => {

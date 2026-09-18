@@ -199,7 +199,12 @@ app.get('/version', (_req: Request, res: Response) => {
       loanManager: process.env.LOAN_MANAGER_CONTRACT_ID ?? 'unknown',
       lendingPool: process.env.LENDING_POOL_CONTRACT_ID ?? 'unknown',
       remittanceNft: process.env.REMITTANCE_NFT_CONTRACT_ID ?? 'unknown',
+      // One governance instance governs exactly one contract, taking over that contract's
+      // `set_admin`. Reporting all three lets an operator confirm the wiring from the
+      // running service rather than from the deploy log.
       multisigGovernance: process.env.MULTISIG_GOVERNANCE_CONTRACT_ID ?? 'unknown',
+      poolGovernance: process.env.POOL_GOVERNANCE_CONTRACT_ID ?? 'unknown',
+      nftGovernance: process.env.NFT_GOVERNANCE_CONTRACT_ID ?? 'unknown',
     },
   });
 });

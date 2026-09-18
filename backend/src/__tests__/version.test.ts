@@ -42,6 +42,8 @@ describe('GET /version', () => {
       'LENDING_POOL_CONTRACT_ID',
       'REMITTANCE_NFT_CONTRACT_ID',
       'MULTISIG_GOVERNANCE_CONTRACT_ID',
+      'POOL_GOVERNANCE_CONTRACT_ID',
+      'NFT_GOVERNANCE_CONTRACT_ID',
     ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
@@ -74,6 +76,8 @@ describe('GET /version', () => {
     expect(res.body.contracts).toHaveProperty('lendingPool');
     expect(res.body.contracts).toHaveProperty('remittanceNft');
     expect(res.body.contracts).toHaveProperty('multisigGovernance');
+    expect(res.body.contracts).toHaveProperty('poolGovernance');
+    expect(res.body.contracts).toHaveProperty('nftGovernance');
   });
 
   it("falls back to 'unknown' when GIT_SHA and BUILD_TIME are not set", async () => {
@@ -96,12 +100,16 @@ describe('GET /version', () => {
     process.env.LENDING_POOL_CONTRACT_ID = 'CPOOL';
     process.env.REMITTANCE_NFT_CONTRACT_ID = 'CNFT';
     process.env.MULTISIG_GOVERNANCE_CONTRACT_ID = 'CGOV';
+    process.env.POOL_GOVERNANCE_CONTRACT_ID = 'CPOOLGOV';
+    process.env.NFT_GOVERNANCE_CONTRACT_ID = 'CNFTGOV';
 
     const res = await request(app).get('/version');
     expect(res.body.contracts.loanManager).toBe('CLOAN');
     expect(res.body.contracts.lendingPool).toBe('CPOOL');
     expect(res.body.contracts.remittanceNft).toBe('CNFT');
     expect(res.body.contracts.multisigGovernance).toBe('CGOV');
+    expect(res.body.contracts.poolGovernance).toBe('CPOOLGOV');
+    expect(res.body.contracts.nftGovernance).toBe('CNFTGOV');
   });
 
   it("contract IDs fall back to 'unknown' when env vars are absent", async () => {
@@ -110,6 +118,8 @@ describe('GET /version', () => {
     expect(res.body.contracts.lendingPool).toBe('unknown');
     expect(res.body.contracts.remittanceNft).toBe('unknown');
     expect(res.body.contracts.multisigGovernance).toBe('unknown');
+    expect(res.body.contracts.poolGovernance).toBe('unknown');
+    expect(res.body.contracts.nftGovernance).toBe('unknown');
   });
 
   it('nodeVersion matches the running Node.js process', async () => {
