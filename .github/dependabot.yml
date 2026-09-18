@@ -24,6 +24,24 @@
 #
 # Security updates are never grouped and never wait for the schedule; Dependabot raises
 # those as soon as the advisory lands, which is the behaviour the review gate expects.
+#
+# **Why some majors are ignored outright.** Leaving majors ungrouped is only half a policy.
+# An ungrouped major still arrives as a pull request, and a major that cannot be landed is
+# not a review task — it is a permanently red pull request that nobody can merge, sitting in
+# the same list as the one security patch that genuinely needs eyes on it today. That is the
+# failure mode grouping was meant to prevent, reintroduced one level up: the important pull
+# request gets lost among the ones that were never going to pass.
+#
+# The majors below are ignored because each is a coordinated migration rather than a version
+# bump — a breaking ABI, a toolchain move, or a runtime the repository has deliberately
+# pinned. They are not forgotten: each is tracked as an issue so it is worked as a deliberate
+# change with its own pull request, rather than becoming a red check that trains reviewers to
+# ignore red checks. Minor and patch updates for the same packages still arrive normally, so
+# ignoring a major never freezes the package.
+#
+# A dependency belongs on one of these lists when the bump cannot pass CI on its own. If a
+# future major does land cleanly, take it off the list then — the list is a record of work to
+# schedule, not a permanent pin.
 
 version: 2
 
@@ -44,6 +62,11 @@ updates:
       root-minor-patch:
         applies-to: version-updates
         update-types: [minor, patch]
+    ignore:
+      # Resolved once across every workspace: `frontend`, `backend`, `scripts` and the root
+      # all pin the same `^5.9.x` line, so the bump is one change with four failure surfaces.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: npm
     directory: "/backend"
@@ -59,6 +82,23 @@ updates:
       backend-minor-patch:
         applies-to: version-updates
         update-types: [minor, patch]
+    ignore:
+      # v17 restructures the Horizon/Soroban client surface. Backend, `scripts` and `frontend`
+      # all speak to the same contracts and should move together in one reviewed change rather
+      # than drifting three versions apart one ecosystem at a time.
+      - dependency-name: "@stellar/stellar-sdk"
+        update-types: [version-update:semver-major]
+      # `@types/node` majors track Node.js runtime majors. The runtime is pinned to 22 by
+      # `.nvmrc` and the container, so the types must not run ahead of the thing they describe.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
+      # v9 changes the migration runner's API, which is load-bearing for the ordered SQL
+      # migrations in `backend/migrations`. The upgrade has to be done with the migration
+      # suite under test, not as a dependency bump.
+      - dependency-name: node-pg-migrate
+        update-types: [version-update:semver-major]
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: npm
     directory: "/frontend"
@@ -74,6 +114,23 @@ updates:
       frontend-minor-patch:
         applies-to: version-updates
         update-types: [minor, patch]
+    ignore:
+      # Same reasoning as the backend entry: one SDK version across the repository, moved in
+      # one pull request.
+      - dependency-name: "@stellar/stellar-sdk"
+        update-types: [version-update:semver-major]
+      # v13 drops the `motion` import path and the v12 easing/transition shape, which the
+      # animation layer uses throughout.
+      - dependency-name: framer-motion
+        update-types: [version-update:semver-major]
+      # v3 removes the v2 player API used by the gamification assets.
+      - dependency-name: lottie-react
+        update-types: [version-update:semver-major]
+      # v7 raises the peer range and changes the matchers the component tests assert with.
+      - dependency-name: "@testing-library/jest-dom"
+        update-types: [version-update:semver-major]
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: npm
     directory: "/scripts"
@@ -89,6 +146,13 @@ updates:
       scripts-minor-patch:
         applies-to: version-updates
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # v17 flips the default for `quiet`/`debug` output ordering, which the deploy scripts
+      # parse out of `.env` handling. Small, but it touches the deployment path.
+      - dependency-name: dotenv
+        update-types: [version-update:semver-major]
 
   # The `contracts` Cargo workspace. `soroban-sdk` is the dependency that matters here: it is
   # the contract ABI, and the toolchain is pinned in `rust-toolchain.toml`, so an SDK bump is
@@ -106,6 +170,13 @@ updates:
       contracts-minor-patch:
         applies-to: version-updates
         update-types: [minor, patch]
+    ignore:
+      # `soroban-sdk` is the contract ABI and it is welded to two other pins: the Rust
+      # toolchain in `rust-toolchain.toml` (1.85.0, chosen for the `wasm32v1-none` target) and
+      # the Soroban host the Testnet deployment runs against. A major SDK bump is a migration
+      # of all four contracts plus redeployment and re-verification, not a version bump.
+      - dependency-name: soroban-sdk
+        update-types: [version-update:semver-major]
 
   # `fuzz` is excluded from the `contracts` workspace and keeps its own `Cargo.lock`, so it is
   # a separate root as far as Dependabot is concerned and needs its own entry.
@@ -118,6 +189,11 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     labels: [dependencies, contracts, rust]
+    ignore:
+      # The fuzz harness is excluded from the contracts workspace but compiles the same `soroban`
+      # feature set, so it has to move with `contracts` above or the two disagree about the ABI.
+      - dependency-name: soroban-sdk
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: "/"
