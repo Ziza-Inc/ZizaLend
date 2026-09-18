@@ -786,7 +786,8 @@ fn test_set_admin_updates_admin_immediately() {
     let topic_1 = soroban_sdk::Symbol::from_val(&env, &event.1.get(1).unwrap());
     let admins = <(Address, Address)>::from_val(&env, &event.2);
     assert_eq!(topic_0, soroban_sdk::Symbol::new(&env, "AdminTransferred"));
-    assert_eq!(topic_1, soroban_sdk::Symbol::new(&env, "govern"));
+    // No governance contract is configured here, so the admin authorised directly.
+    assert_eq!(topic_1, soroban_sdk::Symbol::new(&env, "admin"));
     assert_eq!(admins, (admin, new_admin.clone()));
     assert_eq!(pool_client.get_admin(), new_admin);
 }

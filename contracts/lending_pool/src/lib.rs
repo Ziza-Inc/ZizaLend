@@ -17,8 +17,11 @@
 //!   behavior on Soroban).
 //! - **Emergency pause**: Admin can pause deposits and withdrawals; a separate
 //!   `emergency_withdraw` bypasses both pause and cooldown for user safety.
-//! - **Admin governance**: Two-step admin transfer (`propose` + `accept`) and
-//!   direct `set_admin` for governance multisigs.
+//! - **Admin governance**: Two-step admin transfer (`propose` + `accept`), plus a
+//!   `set_admin` entry point for a configured governance contract. Once
+//!   `set_governance` is called, `set_admin` accepts only the governance
+//!   contract's authorisation, so a single admin key cannot bypass the timelock
+//!   and signer quorum that governance exists to enforce.
 //! - **Upgradeable**: WASM-hash replacement with version tracking.
 //!
 //! ## Key Invariants
@@ -109,6 +112,8 @@ pub enum DataKey {
     /// Address of the LoanManager contract permitted to disburse principal and
     /// settle outstanding balances. Set by the admin at deploy time.
     LoanManager,
+    /// Optional governance contract permitted to replace the admin once set.
+    Governance,
 }
 
 #[contracttype]
@@ -946,15 +951,76 @@ impl LendingPool {
         Ok(())
     }
 
-    pub fn set_admin(env: Env, new_admin: Address) {
-        let current_admin = Self::admin(&env);
-        current_admin.require_auth();
+    /// Set the governance contract permitted to replace this contract's admin.
+    ///
+    /// Once configured, [`Self::set_admin`] accepts authorisation from this
+    /// contract only. That is the point of configuring one: governance enforces a
+    /// 24-hour timelock and a signer quorum, so leaving a single admin key able to
+    /// call `set_admin` directly would bypass the entire apparatus. The admin
+    /// keeps [`Self::propose_admin`] / [`Self::accept_admin`] as a two-step escape
+    /// hatch should governance become unreachable.
+    ///
+    /// Requires admin authorization.
+    pub fn set_governance(env: Env, governance: Address) -> Result<(), PoolError> {
+        Self::admin(&env).require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance, &governance);
+        Self::bump_instance_ttl(&env);
+
+        governance_updated(&env, governance);
+        Ok(())
+    }
+
+    /// Address of the configured governance contract, if any.
+    pub fn get_governance(env: Env) -> Option<Address> {
+        Self::bump_instance_ttl(&env);
+        env.storage().instance().get(&DataKey::Governance)
+    }
+
+    /// Replace the admin.
+    ///
+    /// Authorised by the configured governance contract when one is set, and by
+    /// the current admin otherwise. This is the entry point that
+    /// `MultisigGovernance::finalize_admin_transfer` invokes on its target, so it
+    /// is also the boundary at which the target verifies that the caller really
+    /// is the governance contract rather than merely holding the admin key.
+    ///
+    /// Use [`Self::propose_admin`] / [`Self::accept_admin`] for a two-step
+    /// transfer that works in either configuration.
+    ///
+    /// # Errors
+    ///
+    /// [`PoolError::NotInitialized`] when the contract has no admin.
+    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), PoolError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(PoolError::NotInitialized)?;
+
+        let via = match env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Governance)
+        {
+            Some(governance) => {
+                governance.require_auth();
+                Symbol::new(&env, "governance")
+            }
+            None => {
+                current_admin.require_auth();
+                Symbol::new(&env, "admin")
+            }
+        };
 
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         env.storage().instance().remove(&DataKey::ProposedAdmin);
         Self::bump_instance_ttl(&env);
 
-        admin_transferred(&env, current_admin, new_admin, Symbol::new(&env, "govern"));
+        admin_transferred(&env, current_admin, new_admin, via);
+        Ok(())
     }
 
     pub fn pause(env: Env) {

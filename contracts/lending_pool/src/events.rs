@@ -98,3 +98,10 @@ pub fn loan_manager_updated(env: &Env, loan_manager: Address) {
     let topics = (Symbol::new(env, "LoanManagerSet"),);
     env.events().publish(topics, loan_manager);
 }
+
+/// Emitted when the admin configures (or re-points) the governance contract.
+/// From this point `set_admin` requires the governance contract's authorisation.
+pub fn governance_updated(env: &Env, governance: Address) {
+    let topics = (Symbol::new(env, "GovernanceSet"),);
+    env.events().publish(topics, governance);
+}

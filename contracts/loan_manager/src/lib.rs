@@ -146,6 +146,8 @@ pub enum DataKey {
     MinRateBps,
     MaxRateBps,
     MigratedVersion,
+    /// Optional governance contract permitted to replace the admin once set.
+    Governance,
 }
 
 #[contract]
@@ -2470,6 +2472,79 @@ impl LoanManager {
         Self::bump_instance_ttl(&env);
         env.events()
             .publish((Symbol::new(&env, "AdminTransferred"),), proposed_admin);
+        Ok(())
+    }
+
+    /// Set the governance contract permitted to replace this contract's admin.
+    ///
+    /// Once configured, [`Self::set_admin`] accepts authorisation from this
+    /// contract only, so a single admin key cannot bypass the timelock and
+    /// quorum that governance enforces.
+    ///
+    /// Requires admin authorization.
+    pub fn set_governance(env: Env, governance: Address) -> Result<(), LoanError> {
+        Self::admin(&env).require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance, &governance);
+        Self::bump_instance_ttl(&env);
+
+        env.events()
+            .publish((Symbol::new(&env, "GovernanceSet"),), governance);
+        Ok(())
+    }
+
+    /// Address of the configured governance contract, if any.
+    pub fn get_governance(env: Env) -> Option<Address> {
+        Self::bump_instance_ttl(&env);
+        env.storage().instance().get(&DataKey::Governance)
+    }
+
+    /// Replace the admin.
+    ///
+    /// Authorised by the configured governance contract when one is set, and by
+    /// the current admin otherwise.
+    ///
+    /// This mirrors `LendingPool::set_admin` so that
+    /// `MultisigGovernance::finalize_admin_transfer` can retarget either
+    /// contract. Previously only the pool exposed `set_admin`, so governance
+    /// could not change this contract's admin at all despite the governance
+    /// contract documenting `set_admin` as its target interface.
+    ///
+    /// # Errors
+    ///
+    /// [`LoanError::NotInitialized`] when the contract has no admin.
+    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), LoanError> {
+        let current_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(LoanError::NotInitialized)?;
+
+        let via = match env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Governance)
+        {
+            Some(governance) => {
+                governance.require_auth();
+                Symbol::new(&env, "governance")
+            }
+            None => {
+                current_admin.require_auth();
+                Symbol::new(&env, "admin")
+            }
+        };
+
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::ProposedAdmin);
+        Self::bump_instance_ttl(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "AdminTransferred"), via),
+            (current_admin, new_admin),
+        );
         Ok(())
     }
 

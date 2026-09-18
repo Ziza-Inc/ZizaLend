@@ -20,6 +20,58 @@ every ZizaLend smart contract. Each row specifies:
 
 ---
 
+## Roles and required deploy-time wiring
+
+Each contract has three distinct privileged roles. They are deliberately
+separate; reusing one address for two of them should be an explicit, documented
+decision rather than a side effect of deployment.
+
+| Role | Scope | How it is set |
+| --- | --- | --- |
+| **Admin** | Config, pause, upgrade, and the two-step admin hand-off, on every contract | `initialize`, then `propose_admin` / `accept_admin` |
+| **LoanManager** | `LendingPool::disburse` and `LendingPool::settle_outstanding` — the only path by which principal leaves the pool | `LendingPool::set_loan_manager` |
+| **Governance** | `set_admin` on `LendingPool`, `LoanManager`, and `RemittanceNFT` | `set_governance` on each contract |
+
+### Why the LoanManager role exists
+
+A contract address authorises only *implicitly* — by being the contract
+currently executing. A `LoanManager` calling
+`token.transfer(pool, borrower, ..)` can therefore never be authorised: the pool
+is not in that call stack, and no signature can stand in for a contract address.
+Disbursement must be initiated *by the pool*, which is what
+`LendingPool::disburse` is for. The `LoanManager` authorises the call and the
+pool moves its own funds.
+
+### Why the Governance role exists
+
+`MultisigGovernance::finalize_admin_transfer` invokes `set_admin` on its target.
+Before this role existed that call required the *current admin's* signature,
+which a governance contract cannot supply, and `set_admin` was simultaneously
+reachable by the admin key alone — making the 24-hour timelock and signer quorum
+bypassable. Now:
+
+- `set_governance(governance)` is admin-gated.
+- Once set, `set_admin` accepts authorisation from the governance contract only.
+- `propose_admin` / `accept_admin` remain available to the admin as a two-step
+  escape hatch should governance become unreachable.
+
+### Required wiring after deployment
+
+```text
+1. deploy RemittanceNFT, LendingPool, LoanManager, MultisigGovernance
+2. nft.initialize(admin)
+3. pool.initialize(admin)
+4. manager.initialize(nft, pool, token, admin)   # requires nft.authorize_minter(manager) first
+5. pool.set_loan_manager(manager)                # MANDATORY
+6. gov.initialize(admin, target_contract)
+7. target.set_governance(governance)             # on pool, manager and nft
+```
+
+Step 5 is mandatory: without it `disburse` returns `LoanManagerNotSet` and **no
+loan can be funded**. Step 7 closes the single-key `set_admin` bypass.
+
+---
+
 ## RemittanceNFT (`contracts/remittance_nft`)
 
 | Function | Required Authorizer | Delegable? | Mutates | Emits | Gates | Reentrancy |
@@ -61,7 +113,7 @@ by `// CEI:` state commits — see inline comments on `approve_loan`,
 | --- | --- | --- | --- | --- | --- | --- |
 | `initialize(nft, pool, token, admin)` | (first call only) | No | `NftContract`, `LendingPool`, `Token`, `Admin`, lazy defaults | (init) | Whole contract | n/a |
 | `request_loan(borrower, amount, term)` | `borrower` | No | `Loan(n)` (Pending), `LoanCounter` ++, `BorrowerLoans`, `BorrowerLoanCount` ++ | `LoanRequested` | Sets lifecycle state → Pause/Cascade handles cascades | CEI: state commit precedes no external I/O |
-| `approve_loan(loan_id)` | admin | No | `Loan.status = Approved`, sets due-date/term/last_interest_ledger/last_late_fee_ledger; bumps `TotalOutstanding`; **then** transfers principal pool → borrower | `LoanApproved`, `LoanApprv` | Unlocks repayment; marks funds out of pool | CEI: state committed before `token_client.transfer` |
+| `approve_loan(loan_id)` | admin | No | `Loan.status = Approved`, sets due-date/term/last_interest_ledger/last_late_fee_ledger; **then** asks the pool to `disburse` | `LoanApproved`, `LoanApprv`, pool `Disbursed` | Unlocks repayment; marks funds out of pool | CEI: state committed before the cross-contract call; the pool moves its own principal, because a LoanManager-initiated transfer out of the pool can never be authorised |
 | `deposit_collateral(loan_id, amount)` | recorded `loan.borrower` | No | `Loan.collateral_amount` +=, **then** transfers borrower → contract | `CollateralDeposited` | Increases coverage ratio | CEI: external transfer is the last call |
 | `release_collateral(loan_id)` | (admin-only entry, but `borrower` via the public path) | No | `Loan.collateral_amount = 0` **then** transfers contract → borrower | `CollateralReturned` / `CollateralReleased` | Releases escrowed collateral | CEI: state committed before transfer |
 | `repay(borrower, loan_id, amount)` | `borrower` | No | Splits `amount` proportionally into principal/interest/latefee; bumps `principal_paid`, decrements balances; if fully repaid: marks `Loan.status = Repaid`, decrements `BorrowerLoanCount`, **then** transfers borrower → pool + releases collateral + applies score delta | `LoanRepaid`, optionally `LateFeeCharged` | Closes loan; increased credit | CEI: full state commit precedes transfers; reentrancy on same loan hits `LoanNotActive` |
@@ -75,7 +127,9 @@ by `// CEI:` state commits — see inline comments on `approve_loan`,
 | `set_*` (config: rate, late_fee, term, liquidation, min_score, max_amount, min_repay, max_loans, oracle) | admin | No | Instance-storage keys for the relevant config | Per-call events (e.g. `MinScoreUpdated`, `InterestRateUpdated`) | Live configures the next request's eligibility and math | n/a |
 | `set_rate_oracle(addr)` | admin | No | `RateOracle` instance key | `RateOracleUpdated` | Replaces rate source; bounded by min/max BPS | CEI: rate is read inside `request_loan` |
 | `pause` / `unpause` | admin | No | `Paused`, `PausedAtLedger` | `Paused`, `Unpaused`, `ContractPaused`, `ContractUnpaused` | Blocks `request_loan`, `approve_loan`, `repay`, `deposit_collateral`, `release_collateral`, `liquidate`, `extend_loan`, `refinance_loan`; cascades if pool or NFT paused | n/a |
-| `propose_admin` / `accept_admin` / `set_admin` | admin / proposed / admin | No | `ProposedAdmin`, `Admin` | `AdminProposed`, `AdminTransferred` | Hands admin role | n/a |
+| `set_governance(governance)` | admin | No | `Governance` | `GovernanceSet` | From this point `set_admin` requires the governance contract's auth | n/a |
+| `propose_admin` / `accept_admin` | admin / proposed admin | No | `ProposedAdmin`, `Admin` | `AdminProposed`, `AdminTransferred` | Two-step admin hand-off; works with or without governance configured | n/a |
+| `set_admin(new_admin)` | configured governance, else current admin | No | `Admin`, clears `ProposedAdmin` | `AdminTransferred` (via = `admin` \| `governance`) | Hands admin role; this is the entry point `MultisigGovernance::finalize_admin_transfer` invokes | n/a |
 | `upgrade(wasm_hash)` | admin | No | `Version` | `ContractUpgraded` + WASM swap | Contract bytecode identity | n/a |
 | `view_*` | none (read-only) | n/a | n/a (bumps TTL only) | n/a | n/a | n/a |
 
@@ -92,8 +146,13 @@ by `// CEI:` state commits — see inline comments on `approve_loan`,
 | `pause` / `unpause` | admin | No | `Paused` | `PoolPaused`, `PoolUnpaused` | Blocks `deposit`, `withdraw` (but not `emergency_withdraw`) | n/a |
 | `set_max_pool_size(token, max)` | admin | No | `MaxPoolSize(token)` | `DepositCapUpdated` | Caps tracked principal | n/a |
 | `set_withdrawal_cooldown(ledgers)` | admin | No | `WithdrawalCooldown` | `WithdrawalCooldownUpdated` | Withdrawal pacing | n/a |
-| `adjust_outstanding(token, delta)` | admin (= LoanManager contract, since `LendingPool::adjust_outstanding` requires admin auth but is invoked only by the LoanManager via the address stored as `Admin`) | No — auth is by contract address | `TotalOutstanding(token)` | (silent) | LoanManager bookkeeping | CEI-safe |
-| `propose_admin` / `accept_admin` / `set_admin` | admin / proposed / admin | No | `ProposedAdmin`, `Admin` | `AdminProposed`, `AdminTransferred` | Hands admin role | n/a |
+| `set_loan_manager(loan_manager)` | admin | No | `LoanManager` | `LoanManagerSet` | Grants the only role that may move principal out of the pool | n/a |
+| `disburse(token, to, amount)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` +=, **then** transfers pool → `to` | `Disbursed` | The only path by which principal leaves the pool | CEI: outstanding written before the transfer |
+| `settle_outstanding(token, amount)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` -= (saturating at 0) | `OutstandingSettled` | Retires principal on repayment, refinance-down, or default | n/a |
+| `adjust_outstanding(token, delta)` | configured LoanManager contract | No — auth is by contract address | `TotalOutstanding(token)` | (silent) | LoanManager bookkeeping (net-delta form of the two above) | CEI-safe |
+| `set_governance(governance)` | admin | No | `Governance` | `GovernanceSet` | From this point `set_admin` requires the governance contract's auth | n/a |
+| `propose_admin` / `accept_admin` | admin / proposed admin | No | `ProposedAdmin`, `Admin` | `AdminProposed`, `AdminTransferred` | Two-step admin hand-off; works with or without governance configured | n/a |
+| `set_admin(new_admin)` | configured governance, else current admin | No | `Admin`, clears `ProposedAdmin` | `AdminTransferred` (via = `admin` \| `governance`) | Hands admin role; this is the entry point `MultisigGovernance::finalize_admin_transfer` invokes | n/a |
 | `upgrade(wasm_hash)` | admin | No | `Version` | `ContractUpgraded` + WASM swap | Contract bytecode identity | n/a |
 | `view_*` | none | n/a | n/a | n/a | n/a | n/a |
 
@@ -123,7 +182,7 @@ the target ZizaLend contract.  Its cross-contract `invoke_contract` call in
 
 | Risk Class | Mitigation in code | Verify via |
 | --- | --- | --- |
-| Auth bypass | `require_auth()` everywhere; admin paths checked against stored admin; minter paths via `AuthorizedMinter` set; minter credentials cap at `MAX_AUTHORIZED_MINTERS = 32`; remint strictly admin-gated | `contracts/{remittance_nft,lending_pool,loan_manager,multisig_governance}/src/test.rs :: test_authorized_minter_*`; fuzz target `StealWithdraw` |
+| Auth bypass | Every state-changing entry point calls `require_auth()`; admin paths check the stored admin; minter paths check the `AuthorizedMinter` set (capped at `MAX_AUTHORIZED_MINTERS = 32`); remint is strictly admin-gated; principal can only leave the pool via `LoanManager`-authorised `disburse`; `set_admin` is governance-gated once `set_governance` is called. Note that contract-address auth is *implicit* (invoker-based), so tests must exercise cross-contract transfers under realistic auth rather than `mock_all_auths*` | `contracts/tests/tests/real_auth.rs`, `contracts/tests/tests/admin_model.rs`; unit tests `test_authorized_minter_*`; fuzz target `StealWithdraw` |
 | Reentrancy | CEI: state committed before any `token_client.transfer` on `approve_loan`, `repay`, `cancel_loan`, `reject_loan`, `liquidate`, `deposit_collateral`, `extend_loan`, `refinance_loan`; cross-contract loan manager finalize in multisig hits a synchronous `set_admin` | Static read of each function; fuzz target `fuzz_target_1.rs`; integration test `test_liquidate_is_cei_safe_against_reentrant_token` |
 | Integer overflow / DoS | `checked_mul` / `checked_div` / `checked_add` / `checked_rem` chains throughout; `MAX_RATIO_BPS = 10_000` caps; `MAX_PENALTY_MULTIPLIER = 2` caps debt ceiling; `MAX_LATE_FEE_CAP_BPS = 2500` | Integration test `test_interest_overflow_does_not_panic_loan`; fuzz targets assert `total_deposits` / `score` bounds |
 | Score / reputation abuse | `MAX_SCORE = 850` ceiling; `MAX_SCORE_HISTORY_ENTRIES = 50` truncation; `MIN_CREDIT_SCORE = 300` floor; `MIN_SCORE_UPDATE_REPAYMENT = 100` to reject zero-point repayment updates; `MAX_DEFAULT_BURN_THRESHOLD = 1000`; `TRANSFER_COOLDOWN_LEDGERS = 17280` | Fuzz target invariants; integration test `test_authorized_minter_cannot_resurrect_burned_account` |
