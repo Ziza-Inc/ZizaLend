@@ -229,7 +229,7 @@ jobs:
             fi
 
             # Run migrations (must succeed)
-            docker-compose -f docker-compose.yml -f docker-compose.staging.resolved.yml run --rm backend npm run migrate:up
+            docker-compose -f docker-compose.yml -f docker-compose.staging.resolved.yml run --rm backend node node_modules/node-pg-migrate/bin/node-pg-migrate.js up
 
             # Start backend and frontend
             docker-compose -f docker-compose.yml -f docker-compose.staging.resolved.yml up -d backend frontend --remove-orphans

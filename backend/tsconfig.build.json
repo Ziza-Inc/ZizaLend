@@ -1,11 +1,25 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    // The emit root has to be `src`, not the project root.
+    //
+    // The base config sets `rootDir: "./"` because it includes `jest.config.ts` alongside
+    // `src`, and that is correct for typechecking — `noEmit` means the layout never matters
+    // there. It is wrong for a build. tsc reproduces the tree relative to `rootDir`, so
+    // `src/index.ts` was emitted to `dist/src/index.js`, while `package.json` `main`,
+    // `npm start`, and the Dockerfile `CMD` all point at `dist/index.js`. The built
+    // container could not start: `node dist/index.js` exited with MODULE_NOT_FOUND, so the
+    // image was never runnable and `npm start` never worked.
+    //
+    // Anchoring the emit root at `src` makes the output layout match what every consumer
+    // already expects, rather than rewriting three consumers to match a `dist/src/` path.
+    "rootDir": "./src",
     "types": [],
     "noEmit": false,
     "allowImportingTsExtensions": false,
     "declaration": false,
     "declarationMap": false
   },
+  "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "src/**/__tests__/**", "jest.config.ts"]
 }
