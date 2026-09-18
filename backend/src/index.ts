@@ -37,6 +37,23 @@ import { startScoreDecayScheduler } from './cron/scoreDecayJob.js';
 
 const port = process.env.PORT || 3001;
 
+// ── HTTP server hardening ────────────────────────────────────────
+// Node's defaults allow a request to stay open for 5 minutes with no timeout
+// on headers, which makes the API trivially vulnerable to slowloris-style
+// connection exhaustion. Tighten all three timers and keep them coherent:
+// `headersTimeout` must exceed `keepAliveTimeout` (Node requirement).
+const positiveInt = (raw: string | undefined, fallback: number): number => {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const HTTP_REQUEST_TIMEOUT_MS = positiveInt(process.env.HTTP_REQUEST_TIMEOUT_MS, 30_000);
+const HTTP_KEEPALIVE_TIMEOUT_MS = positiveInt(process.env.HTTP_KEEPALIVE_TIMEOUT_MS, 65_000);
+const HTTP_HEADERS_TIMEOUT_MS = positiveInt(
+  process.env.HTTP_HEADERS_TIMEOUT_MS,
+  HTTP_KEEPALIVE_TIMEOUT_MS + 1_000,
+);
+
 // Maintain a mutable handle to invoke clean scheduler closures on process stops
 let scoreDecaySchedulerHandle: { stop: () => void } | null = null;
 
@@ -58,7 +75,15 @@ try {
 }
 
 const server = app.listen(port, () => {
-  logger.info(`Server is running on port ${port}`);
+  server.requestTimeout = HTTP_REQUEST_TIMEOUT_MS;
+  server.keepAliveTimeout = HTTP_KEEPALIVE_TIMEOUT_MS;
+  server.headersTimeout = HTTP_HEADERS_TIMEOUT_MS;
+
+  logger.info(`Server is running on port ${port}`, {
+    requestTimeoutMs: HTTP_REQUEST_TIMEOUT_MS,
+    keepAliveTimeoutMs: HTTP_KEEPALIVE_TIMEOUT_MS,
+    headersTimeoutMs: HTTP_HEADERS_TIMEOUT_MS,
+  });
 
   // Start the event indexer
   startIndexer();
