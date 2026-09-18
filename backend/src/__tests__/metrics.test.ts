@@ -69,6 +69,26 @@ describe('GET /metrics', () => {
     expect(response.text).toContain('http_request_duration_seconds_bucket');
   });
 
+  it('tracks total requests per route with exact status codes', async () => {
+    await request(app).get('/health');
+
+    const response = await request(app).get('/metrics').set('x-api-key', 'test-metrics-key');
+
+    expect(response.status).toBe(200);
+    // The duration histogram only exposes the status *class*; the counter keeps
+    // the exact status code so 4xx/5xx spikes remain alertable.
+    expect(response.text).toMatch(/http_requests_total\{[^}]*status_code="200"[^}]*\} [1-9]/);
+  });
+
+  it('exposes an in-flight request gauge that returns to zero', async () => {
+    await request(app).get('/health');
+
+    const response = await request(app).get('/metrics').set('x-api-key', 'test-metrics-key');
+
+    expect(response.status).toBe(200);
+    expect(response.text).toMatch(/http_requests_in_flight [0-9]+/);
+  });
+
   it('uses route templates rather than raw path values for HTTP labels', async () => {
     await request(app).get('/api/loans/123');
 

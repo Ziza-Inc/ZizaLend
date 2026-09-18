@@ -45,6 +45,25 @@ export const httpRequestDurationHistogram = new client.Histogram({
   registers: [metricsRegistry],
 });
 
+/**
+ * Total requests handled, labelled by route template and exact status code.
+ * The duration histogram only carries a status *class* (2xx/4xx/...), which is
+ * too coarse to alert on (e.g. a spike in 401s or 429s is invisible).
+ */
+export const httpRequestsTotalCounter = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests handled, labelled by method, route and status code.',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  registers: [metricsRegistry],
+});
+
+/** Requests currently being processed; a proxy for saturation and stuck handlers. */
+export const httpRequestsInFlightGauge = new client.Gauge({
+  name: 'http_requests_in_flight',
+  help: 'Number of HTTP requests currently being processed.',
+  registers: [metricsRegistry],
+});
+
 function routeLabel(req: Request): string {
   const routePath = req.route?.path;
   if (typeof routePath === 'string') {
@@ -60,14 +79,33 @@ function routeLabel(req: Request): string {
 
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
   const endTimer = httpRequestDurationHistogram.startTimer();
+  httpRequestsInFlightGauge.inc();
+
+  let finalized = false;
+  const finalize = (): void => {
+    if (finalized) return;
+    finalized = true;
+    httpRequestsInFlightGauge.dec();
+  };
 
   res.on('finish', () => {
+    const route = routeLabel(req);
+    const method = req.method;
+    const statusCode = res.statusCode;
+
     endTimer({
-      method: req.method,
-      route: routeLabel(req),
-      status_class: `${Math.floor(res.statusCode / 100)}xx`,
+      method,
+      route,
+      status_class: `${Math.floor(statusCode / 100)}xx`,
     });
+    httpRequestsTotalCounter.inc({ method, route, status_code: String(statusCode) });
+
+    finalize();
   });
+
+  // Aborted requests never emit 'finish'; release the in-flight slot so the
+  // gauge does not drift upwards on client disconnects.
+  res.on('close', finalize);
 
   next();
 }
