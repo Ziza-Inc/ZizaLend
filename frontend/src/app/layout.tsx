@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./[locale]/globals.css";
 import { QueryProvider } from "./components/providers/QueryProvider";
@@ -13,7 +13,7 @@ import WalletConnectionModal from "./components/wallet/WalletConnectionModal";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { THEME_STORAGE_KEY } from "./lib/theme";
-import { buildRootMetadata } from "./lib/metadata";
+import { buildRootMetadata, buildRootViewport } from "./lib/metadata";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -26,6 +26,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = buildRootMetadata();
+export const viewport: Viewport = buildRootViewport();
 
 export default async function RootLayout({
   children,

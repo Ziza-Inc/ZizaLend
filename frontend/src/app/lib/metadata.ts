@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 type PageMetadataInput = {
   locale: string;
@@ -93,6 +93,25 @@ export function buildRootMetadata(): Metadata {
       description: SITE_DESCRIPTION,
       images: [ogImage],
     },
+  };
+}
+
+/**
+ * Root viewport / theme-colour configuration.
+ *
+ * Next.js 15+ requires these in a dedicated `viewport` export; declaring
+ * themeColor inside `metadata` is ignored with a build warning. Without it the
+ * mobile browser chrome stays default white/dark instead of matching the app.
+ */
+export function buildRootViewport(): Viewport {
+  return {
+    width: "device-width",
+    initialScale: 1,
+    colorScheme: "light dark",
+    themeColor: [
+      { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+      { media: "(prefers-color-scheme: dark)", color: "#0d0d12" },
+    ],
   };
 }
 

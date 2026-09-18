@@ -1,4 +1,10 @@
-import { buildPageMetadata, buildRootMetadata, getSiteUrl, SITE_TITLE } from "./metadata";
+import {
+  buildPageMetadata,
+  buildRootMetadata,
+  buildRootViewport,
+  getSiteUrl,
+  SITE_TITLE,
+} from "./metadata";
 
 const ORIGINAL_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
 
@@ -65,6 +71,18 @@ describe("buildRootMetadata", () => {
     const metadata = buildRootMetadata();
 
     expect(metadata.title).toEqual({ default: SITE_TITLE, template: "%s | Zizalend" });
+  });
+});
+
+describe("buildRootViewport", () => {
+  it("sets a responsive viewport with light and dark theme colours", () => {
+    const viewport = buildRootViewport();
+    const themeColors = viewport.themeColor;
+
+    expect(viewport.width).toBe("device-width");
+    expect(viewport.initialScale).toBe(1);
+    expect(Array.isArray(themeColors)).toBe(true);
+    expect(themeColors).toHaveLength(2);
   });
 });
 
