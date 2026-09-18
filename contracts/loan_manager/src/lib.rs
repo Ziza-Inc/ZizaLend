@@ -85,6 +85,19 @@ pub enum LoanError {
     LoanNotPurgable = 28,
 }
 
+/// Why a loan was, or was not, transitioned to `Defaulted`.
+///
+/// Returned by the shared default pipeline so that the single-loan entry point can keep
+/// reporting a specific reason, while the batch entry point skips the loan and moves on
+/// to the next one instead of failing.
+enum DefaultOutcome {
+    Defaulted,
+    NotFound,
+    NotActive,
+    NotPastDue,
+    NotInitialized,
+}
+
 #[contracttype]
 #[derive(Clone, PartialEq, Debug)]
 pub enum LoanStatus {
@@ -2654,56 +2667,114 @@ impl LoanManager {
             .unwrap_or(0)
     }
 
+    /// Immediately default a single loan, reporting why it could not be defaulted.
+    ///
+    /// A thin wrapper over `apply_default`, the same pipeline `check_defaults` uses, so
+    /// the two entry points cannot drift apart.
     pub fn check_default(env: Env, loan_id: u32) -> Result<(), LoanError> {
         Self::admin(&env).require_auth();
         Self::require_not_paused(&env)?;
 
+        match Self::apply_default(&env, loan_id) {
+            DefaultOutcome::Defaulted => Ok(()),
+            DefaultOutcome::NotFound => Err(LoanError::LoanNotFound),
+            DefaultOutcome::NotInitialized => Err(LoanError::NotInitialized),
+            DefaultOutcome::NotActive => Err(LoanError::LoanNotActive),
+            DefaultOutcome::NotPastDue => Err(LoanError::LoanNotPastDue),
+        }
+    }
+
+    /// The single-loan default pipeline shared by `check_default` and `check_defaults`.
+    ///
+    /// Every precondition is evaluated before any state is written, and every
+    /// precondition that a *batch* must survive is reported through the return value
+    /// rather than by panicking. The previous implementation of the batch used
+    /// `expect` for both the eligibility arithmetic and the token lookup, so a single
+    /// loan could abort the whole batch with a panic that told the operator nothing
+    /// about which loan was at fault.
+    ///
+    /// The steps that move funds -- seizing collateral and retiring the principal from
+    /// the pool -- are deliberately still fatal. A `loan` marked `Defaulted` whose
+    /// collateral stayed in this contract, or that the pool still counted as
+    /// outstanding, would corrupt the accounting that LP share price depends on, so
+    /// letting the whole call revert is the safe outcome. The caller can then re-run
+    /// the batch without the offending loan, or target it individually.
+    fn apply_default(env: &Env, loan_id: u32) -> DefaultOutcome {
         let loan_key = DataKey::Loan(loan_id);
-        let mut loan: Loan = env
-            .storage()
-            .persistent()
-            .get(&loan_key)
-            .ok_or(LoanError::LoanNotFound)?;
-        Self::bump_persistent_ttl(&env, &loan_key);
+        let mut loan: Loan = match env.storage().persistent().get(&loan_key) {
+            Some(loan) => loan,
+            None => return DefaultOutcome::NotFound,
+        };
+        Self::bump_persistent_ttl(env, &loan_key);
 
         if loan.status != LoanStatus::Approved {
-            return Err(LoanError::LoanNotActive);
+            return DefaultOutcome::NotActive;
         }
 
-        let current_ledger = env.ledger().sequence();
-        let default_eligible_after = loan
-            .due_date
-            .checked_add(Self::default_window_ledgers(&env))
-            .expect("default window overflow");
-        if current_ledger <= default_eligible_after {
-            return Err(LoanError::LoanNotPastDue);
+        // A due date far enough out that adding the default window overflows is not
+        // eligible for default. Both operands are configurable -- the window by the
+        // admin, the due date through the loan's term -- so this is reachable, and it
+        // is a property of this one loan rather than a reason to fail the batch.
+        let default_eligible_after =
+            match loan.due_date.checked_add(Self::default_window_ledgers(env)) {
+                Some(ledger) => ledger,
+                None => return DefaultOutcome::NotPastDue,
+            };
+        if env.ledger().sequence() <= default_eligible_after {
+            return DefaultOutcome::NotPastDue;
         }
+
+        // Configuration is read once, before anything is mutated, and reported as a
+        // typed error instead of a panic part-way through the update.
+        let token: Address = match env.storage().instance().get(&DataKey::Token) {
+            Some(token) => token,
+            None => return DefaultOutcome::NotInitialized,
+        };
 
         loan.status = LoanStatus::Defaulted;
-        let token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Token)
-            .expect("token not set");
         env.storage().persistent().set(&loan_key, &loan);
-        Self::bump_persistent_ttl(&env, &loan_key);
-        Self::decrement_borrower_loan_count(&env, &loan.borrower);
-        Self::seize_collateral_internal(&env, loan_id);
-        // Retire the principal from the pool's outstanding balance, so share
-        // price stops counting a loan that will never be repaid.
-        PoolClient::new(&env, &Self::lending_pool(&env)).settle_outstanding(&token, &loan.amount);
+        Self::bump_persistent_ttl(env, &loan_key);
+        Self::decrement_borrower_loan_count(env, &loan.borrower);
+        Self::seize_collateral_internal(env, loan_id);
+        // Retire the principal from the pool's outstanding balance, so share price
+        // stops counting a loan that will never be repaid.
+        PoolClient::new(env, &Self::lending_pool(env)).settle_outstanding(&token, &loan.amount);
 
-        let nft_contract = Self::nft_contract(&env);
-        let nft_client = NftClient::new(&env, &nft_contract);
-        nft_client.decrease_score(
-            &loan.borrower,
-            &Self::DEFAULT_SCORE_PENALTY_POINTS,
-            &Some(env.current_contract_address()),
+        Self::report_default_to_nft(env, loan_id, &loan.borrower);
+        events::loan_defaulted(env, loan_id, loan.borrower.clone());
+        DefaultOutcome::Defaulted
+    }
+
+    /// Apply a default's credit consequences on the NFT, as a best-effort step.
+    ///
+    /// Unlike the collateral seizure and the pool settlement above, these calls move no
+    /// funds -- they only record the missed payment on the borrower's NFT. They cross a
+    /// contract boundary, so they can be refused for reasons that have nothing to do
+    /// with this loan: no score recorder configured on the NFT, the NFT paused, or the
+    /// borrower holding no NFT. Letting such a refusal abort the caller would mean a
+    /// misconfigured NFT stops *every* overdue loan from ever being defaulted, so no
+    /// collateral would be seized on any of them. A refusal is therefore reported as an
+    /// event rather than being allowed to block the funds-critical path.
+    fn report_default_to_nft(env: &Env, loan_id: u32, borrower: &Address) {
+        let nft_client = NftClient::new(env, &Self::nft_contract(env));
+        let manager = env.current_contract_address();
+
+        let penalised = matches!(
+            nft_client.try_decrease_score(
+                borrower,
+                &Self::DEFAULT_SCORE_PENALTY_POINTS,
+                &Some(manager.clone()),
+            ),
+            Ok(Ok(()))
         );
-        nft_client.record_default(&loan.borrower, &Some(env.current_contract_address()));
+        let recorded = matches!(
+            nft_client.try_record_default(borrower, &Some(manager)),
+            Ok(Ok(()))
+        );
 
-        events::loan_defaulted(&env, loan_id, loan.borrower.clone());
-        Ok(())
+        if !penalised || !recorded {
+            events::default_report_skipped(env, loan_id, borrower.clone());
+        }
     }
 
     /// Extend a loan's due date by the specified number of ledgers.
@@ -2826,59 +2897,21 @@ impl LoanManager {
         Ok(())
     }
 
+    /// Process a batch of loans that may have passed their default window.
+    ///
+    /// Returns how many loans were transitioned to `Defaulted`. Each loan is evaluated
+    /// independently and a loan that is missing, already terminal, or whose eligibility
+    /// cannot be computed is skipped rather than failing the batch, so no single odd
+    /// loan can block the defaults of every other loan in the list.
     pub fn check_defaults(env: Env, loan_ids: Vec<u32>) -> Result<u32, LoanError> {
         Self::admin(&env).require_auth();
         Self::require_not_paused(&env)?;
+
         let mut defaulted_count = 0u32;
-
         for loan_id in loan_ids.iter() {
-            let loan_key = DataKey::Loan(loan_id);
-            let mut loan: Loan = match env.storage().persistent().get(&loan_key) {
-                Some(l) => l,
-                None => continue,
-            };
-            Self::bump_persistent_ttl(&env, &loan_key);
-
-            if loan.status != LoanStatus::Approved {
-                continue;
+            if let DefaultOutcome::Defaulted = Self::apply_default(&env, loan_id) {
+                defaulted_count = defaulted_count.saturating_add(1);
             }
-
-            let current_ledger = env.ledger().sequence();
-            let default_eligible_after = loan
-                .due_date
-                .checked_add(Self::default_window_ledgers(&env))
-                .expect("default window overflow");
-            if current_ledger <= default_eligible_after {
-                continue;
-            }
-
-            loan.status = LoanStatus::Defaulted;
-            let token: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::Token)
-                .expect("token not set");
-            env.storage().persistent().set(&loan_key, &loan);
-            Self::bump_persistent_ttl(&env, &loan_key);
-            Self::decrement_borrower_loan_count(&env, &loan.borrower);
-            Self::seize_collateral_internal(&env, loan_id);
-            // Retire the principal from the pool's outstanding balance.
-            PoolClient::new(&env, &Self::lending_pool(&env))
-                .settle_outstanding(&token, &loan.amount);
-
-            let nft_contract = Self::nft_contract(&env);
-            let nft_client = NftClient::new(&env, &nft_contract);
-            nft_client.decrease_score(
-                &loan.borrower,
-                &Self::DEFAULT_SCORE_PENALTY_POINTS,
-                &Some(env.current_contract_address()),
-            );
-            nft_client.record_default(&loan.borrower, &Some(env.current_contract_address()));
-
-            events::loan_defaulted(&env, loan_id, loan.borrower.clone());
-            defaulted_count = defaulted_count
-                .checked_add(1)
-                .expect("defaulted count overflow");
         }
 
         Ok(defaulted_count)

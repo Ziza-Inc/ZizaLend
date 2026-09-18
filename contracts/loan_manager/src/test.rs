@@ -1335,6 +1335,137 @@ fn test_check_defaults_batch() {
     assert!(nft_client.is_seized(&borrower3));
 }
 
+/// A refusal from the NFT's credit-reporting path must not stop defaults.
+///
+/// `set_score_recorder` is a separate deploy step from the pool and LoanManager wiring,
+/// and when it is missing or points at the wrong address the NFT rejects the manager's
+/// score writes. That rejection used to propagate out of the batch, so one misconfigured
+/// NFT meant *no* overdue loan could ever be defaulted -- and therefore no collateral
+/// could ever be seized on any loan. The funds-critical work must still happen, and the
+/// omission must be reported rather than silently swallowed.
+#[test]
+fn test_check_defaults_isolates_credit_report_refusal() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_address, token_id, _admin) = setup_test(&env);
+    let pool_client = LendingPoolClient::new(&env, &pool_address);
+    let borrower1 = Address::generate(&env);
+    let borrower2 = Address::generate(&env);
+
+    let history_hash = BytesN::from_array(&env, &[7u8; 32]);
+    for borrower in [&borrower1, &borrower2] {
+        nft_client.mint(
+            borrower,
+            &600,
+            &history_hash,
+            &String::from_str(&env, "ipfs://QmTest"),
+            &None,
+        );
+    }
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_address, &100_000);
+
+    let loan1 = manager.request_loan(&borrower1, &1000, &17280);
+    let loan2 = manager.request_loan(&borrower2, &1000, &17280);
+    manager.approve_loan(&loan1);
+    manager.approve_loan(&loan2);
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 2000);
+
+    // What a forgotten or mistyped recorder looks like from the LoanManager's side: the
+    // NFT still has a recorder, it simply is not this contract.
+    nft_client.set_score_recorder(&Address::generate(&env));
+
+    let default_window = manager.get_default_window_ledgers();
+    let due_date = manager.get_loan(&loan1).due_date;
+    env.ledger()
+        .set_sequence_number(due_date + default_window + 1);
+
+    let defaulted = manager.check_defaults(&soroban_sdk::vec![&env, loan1, loan2]);
+    // Captured before any further call, because the test harness only keeps the events
+    // of the most recent invocation.
+    let events = env.events().all();
+
+    assert_eq!(defaulted, 2, "both loans must still be defaulted");
+    assert_eq!(manager.get_loan(&loan1).status, LoanStatus::Defaulted);
+    assert_eq!(manager.get_loan(&loan2).status, LoanStatus::Defaulted);
+
+    // The principal really was retired from the pool, which is the part that matters.
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 0);
+
+    // The credit-side score penalty is what had to be skipped: the borrower keeps the
+    // score they should have lost. (`record_default` still lands, because it is gated on
+    // the minter allow-list rather than the recorder; only the score write is refused.)
+    assert_eq!(nft_client.get_score(&borrower1), 600);
+
+    // ... but it is not silent: an operator can see the skip on-chain and retry it.
+    let expected = soroban_sdk::Symbol::new(&env, "DefaultReportSkipped");
+    let mut skip_reported = false;
+    for event in events.iter() {
+        if let Some(topic) = event.1.get(0) {
+            if soroban_sdk::Symbol::from_val(&env, &topic) == expected {
+                skip_reported = true;
+            }
+        }
+    }
+    assert!(
+        skip_reported,
+        "the skipped credit report must be observable"
+    );
+}
+
+/// A default window large enough to overflow the eligibility arithmetic must not abort
+/// the batch.
+///
+/// `set_default_window_ledgers` is admin-configurable and enforces only a *minimum*, so
+/// `due_date + window` can exceed `u32::MAX`. The batch used to `expect` on that addition,
+/// so a permitted configuration value turned every `check_defaults` call into an opaque
+/// panic. The loan is simply not eligible for default, and the caller gets an answer.
+#[test]
+fn test_check_defaults_survives_eligibility_overflow() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_address, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = BytesN::from_array(&env, &[8u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_address, &100_000);
+
+    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    manager.approve_loan(&loan_id);
+
+    let original_window = manager.get_default_window_ledgers();
+
+    // Accepted by the contract: only a minimum is enforced on this value. The loan's
+    // due date is non-zero, so `due_date + u32::MAX` necessarily overflows.
+    manager.set_default_window_ledgers(&u32::MAX);
+
+    let defaulted = manager.check_defaults(&soroban_sdk::vec![&env, loan_id]);
+
+    assert_eq!(defaulted, 0);
+    assert_eq!(manager.get_loan(&loan_id).status, LoanStatus::Approved);
+
+    // Restoring a sane window makes the very same loan eligible again, so the batch was
+    // skipped rather than left in a broken state.
+    manager.set_default_window_ledgers(&original_window);
+    let due_date = manager.get_loan(&loan_id).due_date;
+    env.ledger()
+        .set_sequence_number(due_date + original_window + 1);
+    assert_eq!(manager.check_defaults(&soroban_sdk::vec![&env, loan_id]), 1);
+    assert_eq!(manager.get_loan(&loan_id).status, LoanStatus::Defaulted);
+}
+
 #[test]
 fn test_check_defaults_empty_batch_returns_zero() {
     let env = Env::default();

@@ -96,6 +96,18 @@ pub fn loan_defaulted(env: &Env, loan_id: u32, borrower: Address) {
     env.events().publish(topics, borrower);
 }
 
+/// A default's credit-side consequences could not be applied on the NFT.
+///
+/// Scoring is deliberately best-effort (see `report_default_to_nft`): the alternative
+/// is a misconfigured NFT making every overdue loan undefaultable, so collateral would
+/// never be seized. The loan is still Defaulted and its collateral still liquidated;
+/// only the borrower's score penalty and default record are missing, which is exactly
+/// what an operator needs to be able to see and retry.
+pub fn default_report_skipped(env: &Env, loan_id: u32, borrower: Address) {
+    let topics = (Symbol::new(env, "DefaultReportSkipped"), loan_id);
+    env.events().publish(topics, borrower);
+}
+
 pub fn term_limits_updated(env: &Env, min_term: u32, max_term: u32) {
     let topics = (Symbol::new(env, "TermLimitsUpdated"),);
     env.events().publish(topics, (min_term, max_term));
