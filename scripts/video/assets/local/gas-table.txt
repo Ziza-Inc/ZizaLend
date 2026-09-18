@@ -1,0 +1,51 @@
+Gas & resource benchmarks
+measured on Testnet
+scripts/benchmark-gas.ts
+Operation
+Contract
+CPU instructions
+Read + write bytes
+Min resource fee (stroops)
+mint _worst case: a first mint, with no existing NFT_
+RemittanceNFT
+1,070,760
+296
+75,966
+update_score _credit event: a 50 XLM repayment, score scaled by amount_
+1,190,512
+564
+72,624
+deposit _100 XLM into an empty pool — mints shares_
+LendingPool
+1,865,971
+1,868
+108,701
+request_loan _10 XLM over the default term_
+LoanManager
+5,159,066
+2,656
+215,930
+approve_loan _approval is what moves the principal out of the pool_
+4,854,523
+2,244
+35,370
+get_loan_accrued _read path — simulated only_
+1,284,071
+0
+17,306
+get_loan _read path — simulated only_
+1,105,565
+17,147
+get_pool_stats _read path — simulated only_
+1,058,040
+15,408
+get_score _read path — simulated only_
+779,283
+13,608
+repay _full repayment: interest accrual, score credit, and pool settlement_
+7,402,455
+3,080
+70,028
+6 state-changing operations, 21,543,287 CPU instructions in total.
+Most expensive: repay at 7,402,455 instructions.
+4 read operations, which cost CPU and memory on simulation but never reach a ledger.

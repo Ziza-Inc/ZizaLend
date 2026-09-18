@@ -1,0 +1,44 @@
+Skip to content
+Navigation Menu
+Pricing
+Search
+/
+Sign in
+Sign up
+Ziza-Inc
+ZizaLend
+Public
+Code
+Issues
+120
+Pull requests
+14
+Discussions
+Actions
+Projects
+Security and quality
+Insights
+Security: Ziza-Inc/ZizaLend
+Security
+SECURITY.md
+Security Policy
+docs/SECURITY-MODEL.md
+Supported Versions
+main
+Version
+Supported
+Main
+✅
+Last Tag
+Older
+❌
+Reporting a Vulnerability
+We take the security of our smart contracts, backend, and frontend seriously.
+Please do not report security vulnerabilities through public GitHub issues.
+GitHub Security Advisories
+GitHub issue
+What to include
+A description of the vulnerability and its impact.
+Steps to reproduce the vulnerability.
+Any relevant logs or output.
+Scope

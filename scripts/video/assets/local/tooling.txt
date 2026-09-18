@@ -1,0 +1,6 @@
+Beyond the DApp
+not a demo
+The repository ships the things a team needs to keep building: deployment and verification
+      scripts, a gas benchmark harness, a generated error-code registry, an OpenAPI spec, a typed SDK, and a backlog
+      reviewed like code.
+Repository tooling and documentation

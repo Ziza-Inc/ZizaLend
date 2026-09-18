@@ -1,0 +1,14 @@
+Skip to main content
+Zizalend
+Wallet Status
+Disconnected
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Request Loan
+Borrower Portal
+Complete each step to configure your loan, preview repayment terms, confirm collateral, and sign your Soroban transaction.
+If a transaction fails, you will now see clear guidance, retry actions for temporary issues, and status tracking for submitted transactions.
+Connect your Stellar wallet to begin the loan application.
+Could not load loan eligibility config
+Failed to fetch

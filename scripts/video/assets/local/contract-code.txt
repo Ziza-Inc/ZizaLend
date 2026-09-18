@@ -1,0 +1,49 @@
+Soroban · Rust
+72 public entry points
+contracts/loan_manager/src/lib.rs
+#![no_std]
+use soroban_sdk::{
+    contract, contractclient, contracterror, contractimpl, contracttype, Address, BytesN, Env,
+    String, Symbol, Vec,
+};
+
+#[contractclient(name = "NftClient")]
+pub trait RemittanceNftInterface {
+    fn get_score(env: Env, user: Address) -> u32;
+    /// Credits a score from a repayment amount. Only the NFT's configured score
+    /// recorder may call this, which is why the LoanManager must be registered via
+    /// `set_score_recorder` at deploy time.
+    fn update_score(env: Env, user: Address, repayment_amount: i128, minter: Option<Address>);
+    /// Penalty half of the same recorder-gated path.
+    fn decrease_score(env: Env, user: Address, penalty_points: u32, minter: Option<Address>);
+    /// The NFT's configured minimum creditable repayment, so this contract can decide
+    /// whether a credit is worthwhile before making a call that would otherwise fail
+    /// the whole repayment transaction.
+    fn get_min_repayment_amount(env: Env) -> i128;
+    fn is_seized(env: Env, user: Address) -> bool;
+    fn record_default(env: Env, user: Address, minter: Option<Address>);
+    fn is_authorized_minter(env: Env, minter: Address) -> bool;
+    fn is_paused(env: Env) -> bool;
+}
+
+#[contractclient(name = "RateOracleClient")]
+pub trait RateOracleInterface {
+    fn get_rate(env: Env, borrower: Address, amount: i128, score: u32) -> u32;
+}
+
+#[contractclient(name = "PoolClient")]
+pub trait LendingPoolInterface {
+    fn is_paused(env: Env) -> bool;
+    fn pool_balance(env: Env, token: Address) -> i128;
+    fn get_total_outstanding(env: Env, token: Address) -> i128;
+    /// Ask the pool to move principal to a borrower.
+    ///
+    /// Declared with a unit return: the pool's `disburse` returns
+    /// `Result<(), PoolError>`, whose `Ok` payload is void, and whose `Err`
+    /// surfaces as a host error that reverts this transaction. Naming the error
+    /// type here would couple this crate to the pool crate for no benefit.
+    ///
+    /// This indirection is mandatory, not stylistic: a contract address can only
+    /// authorise implicitly, so a transfer initiated *by this contract* out of
+    /// the pool's balance can never be authorised.
+    fn disburse(env: Env, token: Address, to: Address, amount: i128);

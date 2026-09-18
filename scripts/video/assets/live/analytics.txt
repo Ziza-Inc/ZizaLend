@@ -1,0 +1,25 @@
+Skip to main content
+Zizalend
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Analytics
+Analytics Dashboard
+Visualize your financial performance with interactive charts
+borrower
+lender
+Financial Performance
+Track your credit score performance over time
+Demo Mode:
+Total Loans
+8
+Active
+2
+Repaid
+5
+On-time Rate
+80%
+5 of 6 resolved
+Credit Score Trend
++4.2%
+Your credit score over the last 12 periods

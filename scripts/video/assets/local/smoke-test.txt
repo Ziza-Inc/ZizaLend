@@ -1,0 +1,5 @@
+Verification
+run against Testnet
+smoke-testnet.ts
+✓
+8/8 on Stellar Testnet

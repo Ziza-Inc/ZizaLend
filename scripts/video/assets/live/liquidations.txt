@@ -1,0 +1,15 @@
+Skip to main content
+Zizalend
+Wallet Status
+Disconnected
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Liquidations
+Liquidator Console
+Liquidatable Loans
+Review active positions below the liquidation threshold and submit liquidation transactions.
+Unable to load liquidations
+Check the liquidations API and try again.
+Wallet disconnected
+Reconnect anytime to continue borrowing and lending.

@@ -1,0 +1,12 @@
+Skip to main content
+Zizalend
+Wallet Status
+Disconnected
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Remittances
+Remittance History
+Connect your wallet to view your cross-border transfer history.
+Wallet disconnected
+Reconnect anytime to continue borrowing and lending.

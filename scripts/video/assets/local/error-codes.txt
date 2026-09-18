@@ -1,0 +1,22 @@
+Error handling
+every one documented
+scripts/generate-error-codes.mjs
+Contract
+Enum
+Codes
+RemittanceNFT
+NftError
+21
+LoanManager
+LoanError
+25
+LendingPool
+PoolError
+14
+MultisigGovernance
+GovernanceError
+20
+API
+ErrorCode
+33
+Error(Contract, #13)

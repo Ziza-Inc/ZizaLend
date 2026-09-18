@@ -1,0 +1,10 @@
+Skip to main content
+Zizalend
+Wallet Status
+Disconnected
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Wallet
+Connect your Stellar wallet to view your balances and transaction history.
+Connect wallet

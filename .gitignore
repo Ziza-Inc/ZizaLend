@@ -24,3 +24,9 @@ checks.md
 packages/*/dist/
 packages/*/node_modules/
 packages/types/src/generated.ts
+
+# Pitch video pipeline. The captured stills (scripts/video/assets) and the published video
+# (docs/media) are committed, because they are the deliverable. These are not: both are
+# reproduced by `node build.mjs`, and the audio additionally needs a network round trip.
+scripts/video/audio/
+scripts/video/build/

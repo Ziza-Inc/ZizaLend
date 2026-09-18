@@ -1,0 +1,49 @@
+System architecture
+Four contracts, one trust boundary
+Drawn from ARCHITECTURE.md — the same graph a contributor reads.
+flowchart TB
+    subgraph Users["👥 Users"]
+        B["🏃 Borrower<br/>(Migrant Worker)"]
+        L["💰 Lender<br/>(Liquidity Provider)"]
+    end
+    
+    subgraph Frontend["🖥️ Frontend Layer"]
+        UI["Next.js Web App<br/>• Wallet Connection<br/>• Dashboard<br/>• Transaction UI"]
+    end
+    
+    subgraph Backend["⚙️ Backend Layer"]
+        API["Express API<br/>• Credit Scoring<br/>• Metadata<br/>• Validation"]
+        Cache["Redis Cache<br/>(Planned)"]
+    end
+    
+    subgraph Blockchain["⛓️ Stellar Blockchain"]
+        direction LR
+        NFT["📜 Remittance NFT<br/>• Store Credit Score<br/>• Lock/Unlock<br/>• History Hash"]
+        LM["🏦 Loan Manager<br/>• Request Loan<br/>• Approve/Reject<br/>• Track Repayment"]
+        LP["💵 Lending Pool<br/>• Deposit/Withdraw<br/>• Allocate Funds<br/>• Distribute Yield"]
+    end
+    
+    subgraph External["🌐 External Services"]
+        Wise["Wise API<br/>(Planned)"]
+        WU["Western Union<br/>(Planned)"]
+        IPFS["IPFS<br/>(Planned)"]
+    end
+    
+    B --> UI
+    L --> UI
+    UI <--> API
+    API <--> Cache
+    API -.-> Wise
+    API -.-> WU
+    API -.-> IPFS
+    UI <--> NFT
+    UI <--> LM
+    UI <--> LP
+    LM <--> NFT
+    LM <--> LP
+    
+    style NFT fill:#e1f5ff,stroke:#0066cc,stroke-width:2px
+    style LM fill:#ffe1e1,stroke:#cc0000,stroke-width:2px
+    style LP fill:#e1ffe1,stroke:#00cc00,stroke-width:2px
+    style UI fill:#fff4e1,stroke:#ff9900,stroke-width:2px
+    style API fill:#f0e1ff,stroke:#9900cc,stroke-width:2px

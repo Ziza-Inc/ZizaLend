@@ -1,0 +1,54 @@
+Skip to content
+Navigation Menu
+Pricing
+Search
+/
+Sign in
+Sign up
+Ziza-Inc
+ZizaLend
+Public
+Code
+Issues
+120
+Pull requests
+14
+Discussions
+Actions
+Projects
+Security and quality
+Insights
+Actions: Ziza-Inc/ZizaLend
+All workflows
+CodeQL
+Commit Lint
+Dependabot Updates
+Dependency Review
+Deploy Frontend
+Deploy Staging
+Load Test
+ZizaLend CI
+Management
+Caches
+Deployments
+Showing runs from all workflows
+882 workflow runs
+Workflow
+Event
+Status
+Branch
+Actor
+chore(deps): bump rand from 0.8.5 to 0.8.8 in /contracts/fuzz
+#185
+dependabot
+Bot
+dependabot/cargo/contracts/fuzz/rand-0.8.8
+Queued
+chore(deps): bump keccak from 0.1.5 to 0.1.6 in /contracts
+#184
+dependabot/cargo/contracts/keccak-0.1.6
+In progress
+1m 6s
+chore(deps): bump rand from 0.8.5 to 0.8.8 in /contracts
+#183
+dependabot/cargo/contracts/rand-0.8.8

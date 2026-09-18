@@ -1,0 +1,12 @@
+Skip to main content
+Zizalend
+Wallet Status
+Disconnected
+Ctrl/Cmd + K
+Connect Wallet
+Dashboard
+Lend
+Lender Dashboard
+Connect your wallet to view your lending pool portfolio.
+Wallet disconnected
+Reconnect anytime to continue borrowing and lending.
