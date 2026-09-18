@@ -8,7 +8,7 @@ type PageMetadataInput = {
 };
 
 const LOCALES = ["en", "es", "tl"] as const;
-const DEFAULT_SITE_URL = "https://Zizalend.com";
+const DEFAULT_SITE_URL = "https://zizalend.com";
 const SITE_NAME = "Zizalend";
 // Social crawlers (Facebook, LinkedIn, Slack, X) do not render SVG preview
 // cards, so an SVG here silently produced no image on every share. Ship the

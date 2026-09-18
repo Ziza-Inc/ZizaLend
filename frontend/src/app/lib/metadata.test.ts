@@ -11,6 +11,12 @@ afterEach(() => {
 });
 
 describe("getSiteUrl", () => {
+  it("falls back to a lowercase default host when unset", () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+
+    expect(getSiteUrl().toString()).toBe("https://zizalend.com/");
+  });
+
   it("falls back to the default when the configured value is not a URL", () => {
     process.env.NEXT_PUBLIC_APP_URL = "not-a-url";
 
