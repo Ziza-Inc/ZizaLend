@@ -23,6 +23,7 @@
   <img src="https://img.shields.io/badge/backend_tests-530_passing-2EA043?style=flat-square&logo=jest" alt="530 backend tests passing" />
   <img src="https://img.shields.io/badge/smoke_test-8%2F8_on_Testnet-2EA043?style=flat-square&logo=stellar" alt="End-to-end smoke test passing on Testnet" />
   <a href="docs/contracts-ACCESS-CONTROL.md"><img src="https://img.shields.io/badge/governance-3--of--N_multisig-7C3AED?style=flat-square" alt="Multisig governance" /></a>
+  <a href="docs/media/zizalend-pitch.mp4"><img src="https://img.shields.io/badge/pitch_video-4_minutes-7C3AED?style=flat-square&logo=ffmpeg&labelColor=0D0D12" alt="Watch the pitch video" /></a>
 
   <!-- Tech Stack (versions verified against package.json / Cargo.toml / CI) -->
   <br/>
@@ -49,6 +50,7 @@
 
 - [Overview](#-overview)
 - [Live on Testnet](#-live-on-testnet)
+- [Pitch Video](#-pitch-video)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
 - [Tech Stack](#-tech-stack)
@@ -112,6 +114,50 @@ Two claims are deliberately separated, because they are different claims. `deplo
 the contracts *exist and are wired*. `smoke-testnet.ts` proves the protocol *works* — deposit,
 request, approve, repay, score credited, withdrawal. A deployment that passes only the first
 is a set of addresses, not a working system.
+
+---
+
+## 🎬 Pitch Video
+
+<a href="docs/media/zizalend-pitch.mp4">
+  <img src="docs/media/zizalend-pitch-thumbnail.png" alt="ZizaLend — every transfer builds your future. Click to watch the four-minute pitch." width="100%" />
+</a>
+
+### ▶️ [**Watch the four-minute pitch**](docs/media/zizalend-pitch.mp4)
+
+Four minutes covering the problem, the protocol, the four deployed contracts, the live
+application, the measured performance, and what makes this infrastructure rather than a
+finished demo.
+
+The video is **built from the repository, not written about it**. `scripts/video/build.mjs`
+captures its footage from the deployed application and from GitHub, narrates the script in
+`scenes.mjs` with a neural voice, composes the frames with ffmpeg, and then
+**verifies every number it states against the repository** — the workflow count, the error
+codes, the coverage gate, the open-issue count, and the contract count are all looked up and
+compared before the file is allowed to publish. A claim that no longer holds fails the build
+with the exact edit to make.
+
+```bash
+cd scripts/video && npm install
+node build.mjs --draft   # ~2 minutes, low-resolution, for iterating on the script
+node build.mjs           # full 1080p build, then verifies its own claims
+```
+
+<details>
+<summary>What the build checks before publishing</summary>
+
+| Check | Asserted against |
+| --- | --- |
+| Workflow count | `.github/workflows/*.yml` |
+| Error-code count | `docs/ERROR_CODES.md` |
+| Coverage gate | `--fail-under` in `ci.yml` |
+| Smart-contract count | `cdylib` crates under `contracts/` |
+| Gas benchmark rows | the published summary in `docs/GAS.md` |
+| Smoke-test claim | the README badge vs. the reproduction block |
+| Open issues, required checks | the GitHub API (skipped when `gh` is unauthenticated) |
+| Duration, streams, loudness, progress bar | the encoded file itself |
+
+</details>
 
 ---
 
@@ -558,16 +604,19 @@ ZizaLend/
 
 ## 📊 Project Stats
 
-| Metric            | Value                                                                  |
-| ----------------- | ---------------------------------------------------------------------- |
-| Smart Contracts   | 4 Soroban (Rust) contracts                                             |     | Backend Services    | 18 service modules (17 user-facing + 1 internal connector), 13 controllers |
-| API Endpoints     | 50+ REST endpoints                                                     |     | Database Migrations | 34 versioned migrations                                                    |
-| Backend Tests     | 51 suites, 322 tests                                                   |
-| Frontend Tests    | 19 suites, 190 unit tests                                              |
-| E2E Tests         | 11 Playwright spec files                                               |
-| Fuzz Targets      | 5 property-based targets                                               |
-| CI Workflows      | 6 types (CI, CodeQL, Deploy, Dependency Review, Commitlint, Load Test) |
-| Supported Locales | English, Spanish, Tagalog                                              |
+| Metric | Value |
+| -------------------- | ---------------------------------------------------------------------- |
+| Smart Contracts | 4 Soroban (Rust) contracts, deployed and wired on Testnet |
+| Contract Tests | 344 passing; coverage gated at 75% in CI |
+| Backend | 18 service modules and 13 controllers behind 50+ REST endpoints |
+| Backend Tests | 530 passing |
+| Frontend Tests | 190 unit tests across 20 suites, plus 11 Playwright E2E specs |
+| Database Migrations | 34 versioned migrations |
+| Fuzz Targets | 5 property-based targets across all 4 contracts |
+| Error Codes | 113 typed codes, generated and checked in CI |
+| CI Workflows | 7 workflows, 13 required status checks on `main` |
+| Pitch Video | 4 minutes, built and self-verified by `scripts/video/build.mjs` |
+| Supported Locales | English, Spanish, Tagalog |
 
 ---
 
