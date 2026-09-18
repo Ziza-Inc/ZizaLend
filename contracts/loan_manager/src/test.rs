@@ -2156,6 +2156,76 @@ fn test_extend_loan_rejected_for_zero_ledgers() {
 }
 
 #[test]
+fn test_extend_loan_rejects_extension_beyond_max_term() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+    stellar_token.mint(&borrower, &50_000);
+
+    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    manager.approve_loan(&loan_id);
+
+    // A single extension may not exceed the configured maximum term. Before
+    // this bound existed, u32::MAX pushed the due date ~680 years out and the
+    // loan could never default.
+    let result = manager.try_extend_loan(&borrower, &loan_id, &u32::MAX);
+    assert_eq!(result, Err(Ok(LoanError::InvalidTerm)));
+
+    // The rejected call must not have mutated the loan.
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(loan.extension_count, 0);
+}
+
+#[test]
+fn test_extend_loan_accepts_extension_equal_to_max_term() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_client, token_id, _admin) = setup_test(&env);
+    let borrower = Address::generate(&env);
+
+    let history_hash = soroban_sdk::BytesN::from_array(&env, &[0u8; 32]);
+    nft_client.mint(
+        &borrower,
+        &600,
+        &history_hash,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &None,
+    );
+    let stellar_token = StellarAssetClient::new(&env, &token_id);
+    stellar_token.mint(&pool_client, &10_000);
+    stellar_token.mint(&borrower, &50_000);
+
+    let loan_id = manager.request_loan(&borrower, &1000, &17280);
+    manager.approve_loan(&loan_id);
+
+    let original_due_date = manager.get_loan(&loan_id).due_date;
+
+    // The boundary is inclusive: exactly max_term ledgers is allowed.
+    manager.extend_loan(&borrower, &loan_id, &manager.get_max_term_ledgers());
+
+    let loan = manager.get_loan(&loan_id);
+    assert_eq!(loan.extension_count, 1);
+    assert_eq!(
+        loan.due_date,
+        original_due_date + manager.get_max_term_ledgers()
+    );
+}
+
+#[test]
 fn test_extend_loan_max_extensions_limit() {
     let env = Env::default();
     env.mock_all_auths_allowing_non_root_auth();

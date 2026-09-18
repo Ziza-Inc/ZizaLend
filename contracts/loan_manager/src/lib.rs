@@ -2576,6 +2576,21 @@ impl LoanManager {
             return Err(LoanError::InvalidTerm);
         }
 
+        // Bound a single extension by the configured maximum term. `extra_ledgers`
+        // was previously unbounded, so a borrower could pass `u32::MAX` and push
+        // the due date ~680 years out for one 1% extension fee — the loan could
+        // never become overdue, so the default path (and the collateral seizure
+        // that protects lenders) was unreachable. MAX_EXTENSIONS alone did not
+        // help because three such calls are more than enough.
+        let max_extension_ledgers: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxTermLedgers)
+            .unwrap_or(Self::DEFAULT_TERM_LEDGERS);
+        if extra_ledgers > max_extension_ledgers {
+            return Err(LoanError::InvalidTerm);
+        }
+
         let loan_key = DataKey::Loan(loan_id);
         let mut loan: Loan = env
             .storage()
