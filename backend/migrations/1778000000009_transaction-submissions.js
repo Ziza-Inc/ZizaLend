@@ -15,57 +15,68 @@ export const up = (pgm) => {
     $$ LANGUAGE plpgsql;
   `);
 
-  pgm.createTable('transaction_submissions', {
-    id: {
-      type: 'serial',
-      primaryKey: true,
+  // Renamed from `1778000000008_transaction-submissions`, which collided with
+  // `1778000000008_quarantine-events`. The recorded name changed, so a database that
+  // applied the old filename will run this one again; every step below is therefore
+  // written to be a no-op when its end state already exists.
+  pgm.createTable(
+    'transaction_submissions',
+    {
+      id: {
+        type: 'serial',
+        primaryKey: true,
+      },
+      tx_hash: {
+        type: 'varchar(64)',
+        notNull: true,
+        unique: true,
+      },
+      status: {
+        type: 'varchar(50)',
+        notNull: true,
+      },
+      submitted_at: {
+        type: 'timestamp with time zone',
+        notNull: true,
+        default: pgm.func('NOW()'),
+      },
+      submitted_by: {
+        type: 'varchar(56)',
+        null: true,
+      },
+      transaction_type: {
+        type: 'varchar(20)',
+        notNull: true,
+        default: 'loan',
+      },
+      result_xdr: {
+        type: 'text',
+        null: true,
+      },
+      created_at: {
+        type: 'timestamp with time zone',
+        notNull: true,
+        default: pgm.func('NOW()'),
+      },
+      updated_at: {
+        type: 'timestamp with time zone',
+        notNull: true,
+        default: pgm.func('NOW()'),
+      },
     },
-    tx_hash: {
-      type: 'varchar(64)',
-      notNull: true,
-      unique: true,
-    },
-    status: {
-      type: 'varchar(50)',
-      notNull: true,
-    },
-    submitted_at: {
-      type: 'timestamp with time zone',
-      notNull: true,
-      default: pgm.func('NOW()'),
-    },
-    submitted_by: {
-      type: 'varchar(56)',
-      null: true,
-    },
-    transaction_type: {
-      type: 'varchar(20)',
-      notNull: true,
-      default: 'loan',
-    },
-    result_xdr: {
-      type: 'text',
-      null: true,
-    },
-    created_at: {
-      type: 'timestamp with time zone',
-      notNull: true,
-      default: pgm.func('NOW()'),
-    },
-    updated_at: {
-      type: 'timestamp with time zone',
-      notNull: true,
-      default: pgm.func('NOW()'),
-    },
-  });
+    { ifNotExists: true },
+  );
 
-  // Indexes for performance
-  pgm.createIndex('transaction_submissions', ['submitted_at']);
-  pgm.createIndex('transaction_submissions', ['submitted_by']);
-  pgm.createIndex('transaction_submissions', ['status']);
-  pgm.createIndex('transaction_submissions', ['transaction_type']);
+  // Indexes for performance. The generated names depend only on the table and its
+  // columns, so the first and any later run create and then skip the same names.
+  pgm.createIndex('transaction_submissions', ['submitted_at'], { ifNotExists: true });
+  pgm.createIndex('transaction_submissions', ['submitted_by'], { ifNotExists: true });
+  pgm.createIndex('transaction_submissions', ['status'], { ifNotExists: true });
+  pgm.createIndex('transaction_submissions', ['transaction_type'], { ifNotExists: true });
 
-  // Trigger to update updated_at timestamp
+  // Trigger to update updated_at timestamp. `createTrigger` takes no `ifNotExists`,
+  // so this is drop-then-create, which is idempotent.
+  pgm.sql('DROP TRIGGER IF EXISTS update_updated_at ON transaction_submissions;');
   pgm.createTrigger('transaction_submissions', 'update_updated_at', {
     when: 'BEFORE',
     operation: 'UPDATE',

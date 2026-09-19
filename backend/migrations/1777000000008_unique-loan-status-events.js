@@ -9,6 +9,16 @@ export const shorthands = undefined;
  * @returns {Promise<void> | void}
  */
 export const up = (pgm) => {
+  // Renamed from `1777000000007_unique-loan-status-events`, which collided with
+  // `1777000000007_loan-events-composite-indexes` and left the order between them
+  // decided by alphabetical luck. The timestamp is now unique and the effective
+  // order is unchanged.
+  //
+  // Because the recorded name changed, a database that already applied the old
+  // filename will run this one again, so every step here is a no-op on the second
+  // pass: the dedupe deletes nothing once the duplicates are gone, and the index
+  // creation is guarded.
+  //
   // Keep the earliest status event per (loan_id, event_type) before enforcing uniqueness.
   pgm.sql(`
     DELETE FROM loan_events le
@@ -31,7 +41,7 @@ export const up = (pgm) => {
   `);
 
   pgm.sql(`
-    CREATE UNIQUE INDEX loan_events_unique_status_event_per_loan
+    CREATE UNIQUE INDEX IF NOT EXISTS loan_events_unique_status_event_per_loan
     ON loan_events (loan_id, event_type)
     WHERE loan_id IS NOT NULL
       AND event_type IN ('LoanApproved', 'LoanDefaulted')
