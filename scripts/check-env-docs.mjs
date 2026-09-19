@@ -81,9 +81,24 @@ for (const { path, label } of envFiles) {
 // startup for anyone following the quick start.
 const envValidatorPath = join(root, "backend", "src", "config", "env.ts");
 const envValidatorSource = readFileSync(envValidatorPath, "utf-8");
-const requiredVars = [...envValidatorSource.matchAll(/^\s*'([A-Z][A-Z0-9_]*)',?\s*$/gm)].map(
-  (match) => match[1],
-);
+
+/**
+ * Pull the keys out of a named array literal in the validator source.
+ *
+ * Scoping the match to the array (rather than collecting every quoted constant
+ * in the file) keeps required and optional variables distinct — otherwise an
+ * entry added to OPTIONAL_ENV_VARS would be reported as a missing *required*
+ * key. Falls back to a whole-file scan if the shape ever changes, so this check
+ * degrades to its previous behaviour instead of silently passing.
+ */
+function extractArrayKeys(source, arrayName) {
+  const scoped = source.match(new RegExp(`${arrayName}\\s*(?::[^=]+)?=\\s*\\[([\\s\\S]*?)\\]`));
+  const body = scoped ? scoped[1] : source;
+  return [...body.matchAll(/'([A-Z][A-Z0-9_]*)'/g)].map((match) => match[1]);
+}
+
+const requiredVars = extractArrayKeys(envValidatorSource, "REQUIRED_ENV_VARS");
+const optionalVars = extractArrayKeys(envValidatorSource, "OPTIONAL_ENV_VARS");
 
 if (requiredVars.length === 0) {
   console.error(
@@ -101,6 +116,17 @@ if (requiredVars.length === 0) {
   }
 
   console.log(`   Root template covers all ${requiredVars.length} required backend variables.`);
+
+  // Optional variables must still be documented in the backend template — a
+  // variable nobody knows about is one nobody sets.
+  const backendEnvKeys = new Set(parseEnvKeys(join(root, "backend", ".env.example")));
+  const undocumentedOptional = optionalVars.filter((key) => !backendEnvKeys.has(key));
+
+  if (undocumentedOptional.length > 0) {
+    console.error("\n❌ [backend/.env.example] Optional backend keys missing from the template:");
+    for (const key of undocumentedOptional) console.error(`   - ${key}`);
+    exitCode = 1;
+  }
 }
 
 // Also check that doc has the backend and frontend sections

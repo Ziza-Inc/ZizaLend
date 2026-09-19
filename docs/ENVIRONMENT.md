@@ -15,7 +15,8 @@ This document lists every environment variable used by the ZizaLend platform. Ea
 | `DATABASE_URL` | ✓ | ✓ | ✓ | `postgres://postgres:postgres@db:5432/ZizaLend` | PostgreSQL connection string | `backend/src/db/connection.js` |
 | `DB_CONN_TIMEOUT_MS` | — | ✓ | ✓ | `10000` | Pool connection timeout in ms; pool.connect() rejects instead of hanging | `backend/src/db/connection.ts` |
 | `DB_STATEMENT_TIMEOUT_MS` | — | ✓ | ✓ | `30000` | Per-query statement_timeout in ms; a stuck query never holds a connection indefinitely | `backend/src/db/connection.ts` |
-| `REDIS_URL` | ✓ | ✓ | ✓ | `redis://redis:6379` | Redis connection string | `backend/src/services/cacheService.ts` |
+| `REDIS_URL` | — | ✓ | ✓ | `redis://redis:6379` | **Optional.** Redis connection string for the response cache, distributed locks and rate limiting. When unset the service uses an in-process store: it still boots and serves traffic, but cache entries and rate-limit counters are per-instance and are discarded on restart. Set it for multi-instance deployments. | `backend/src/utils/kvStore.ts` |
+| `CACHE_DRIVER` | — | — | — | `auto` | Which key-value store backs the cache and rate limiter: `auto` (Redis when `REDIS_URL` is set, otherwise the in-process store), `redis` (hard requirement — startup fails without `REDIS_URL`), or `memory` (force the in-process store). | `backend/src/utils/kvStore.ts` |
 | `STELLAR_NETWORK` | ✓ | ✓ | ✓ | `testnet` | Stellar network name (`testnet`, `mainnet`) | `backend/src/config/stellar.ts` |
 | `STELLAR_RPC_URL` | ✓ | ✓ | ✓ | `https://soroban-testnet.stellar.org` | Soroban RPC endpoint | `backend/src/config/stellar.ts` |
 | `STELLAR_NETWORK_PASSPHRASE` | ✓ | ✓ | ✓ | `Test SDF Network ; September 2015` | Network passphrase for transaction signing | `backend/src/config/stellar.ts` |

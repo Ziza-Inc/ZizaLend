@@ -1,7 +1,5 @@
-import { createClient, type RedisClientType } from 'redis';
+import { kvStore, type KvDriver, type KvStore } from '../utils/kvStore.js';
 import logger from '../utils/logger.js';
-
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 interface RateLimitConfig {
   maxRequests: number;
@@ -16,36 +14,34 @@ interface RateLimitResult {
 }
 
 /**
- * Redis-based rate limiting service for API endpoints.
- * Uses fixed-window counters with atomic Redis INCR operations.
+ * Fixed-window rate limiting over the shared key-value store.
+ *
+ * The counter is bumped with an atomic INCR so concurrent requests cannot all
+ * read the same value and slip through the boundary together. When the store is
+ * Redis the window is shared by every instance; when it falls back to the
+ * in-process store (no `REDIS_URL`), each instance counts separately — the limit
+ * still applies, but it is per-instance rather than global.
+ *
+ * If the store is unreachable the service fails **open** (the request is
+ * allowed). Rate limiting is a protection against abuse, not a correctness
+ * requirement, and failing closed would take the API down with Redis.
  */
-class RateLimitService {
+export class RateLimitService {
   private static readonly DEFAULT_CONFIG: RateLimitConfig = {
     maxRequests: 10,
     windowSeconds: 86400, // 24 hours
   };
 
-  private client: RedisClientType;
-  private isConnected = false;
+  private readonly store: KvStore;
 
-  constructor() {
-    this.client = createClient({ url: REDIS_URL });
-    this.client.on('error', (error) => {
-      this.isConnected = false;
-      if (process.env.NODE_ENV !== 'test') {
-        logger.withContext().error('Rate limit Redis client error', { error });
-      }
-    });
-    this.client.on('connect', () => {
-      this.isConnected = true;
-    });
+  /** `store` is injectable so tests can exercise the limiter without Redis. */
+  constructor(store: KvStore = kvStore) {
+    this.store = store;
   }
 
-  private async ensureConnected(): Promise<void> {
-    if (!this.isConnected) {
-      await this.client.connect();
-      this.isConnected = true;
-    }
+  /** Which backend is in use (`redis` or `memory`). Reported by `GET /health`. */
+  get driver(): KvDriver {
+    return this.store.driver;
   }
 
   /**
@@ -62,33 +58,30 @@ class RateLimitService {
     const key = `rate_limit:${identifier}`;
 
     try {
-      await this.ensureConnected();
-
-      // Redis INCR is atomic, so concurrent requests cannot all read the same
-      // counter value and pass the boundary together.
-      const currentCount = await this.client.incr(key);
+      // INCR is atomic, so concurrent requests cannot all read the same counter
+      // value and pass the boundary together. The TTL is set on the first hit
+      // only, so the window is anchored to the first request.
+      const currentCount = await this.store.incr(key);
       if (currentCount === 1) {
-        await this.client.expire(key, config.windowSeconds);
+        await this.store.expire(key, config.windowSeconds);
       }
 
-      const ttlSeconds = await this.client.ttl(key);
+      const ttlSeconds = await this.store.ttl(key);
       const resetTime = new Date(
         Date.now() + (ttlSeconds > 0 ? ttlSeconds : config.windowSeconds) * 1000,
       );
-      const allowed = currentCount <= config.maxRequests;
-      const remaining = Math.max(0, config.maxRequests - currentCount);
 
       return {
-        allowed,
-        remaining,
+        allowed: currentCount <= config.maxRequests,
+        remaining: Math.max(0, config.maxRequests - currentCount),
         resetTime,
         currentCount,
       };
     } catch (error) {
       logger.withContext().error('Rate limit check failed', { identifier, error });
 
-      // Fail open: allow the request if Redis is unavailable
-      // This prevents the entire service from failing due to rate limiting issues
+      // Fail open: allow the request if the store is unavailable. This prevents
+      // the entire service from failing due to rate limiting issues.
       return {
         allowed: true,
         remaining: config.maxRequests - 1,
@@ -107,8 +100,7 @@ class RateLimitService {
   async resetRateLimit(identifier: string): Promise<void> {
     const key = `rate_limit:${identifier}`;
     try {
-      await this.ensureConnected();
-      await this.client.del(key);
+      await this.store.del(key);
       logger.withContext().info('Rate limit reset', { identifier });
     } catch (error) {
       logger.withContext().error('Failed to reset rate limit', { identifier, error });
@@ -129,39 +121,33 @@ class RateLimitService {
     const key = `rate_limit:${identifier}`;
 
     try {
-      await this.ensureConnected();
-      const currentValue = await this.client.get(key);
+      const currentValue = await this.store.get(key);
 
       if (!currentValue) {
-        const resetTime = new Date(Date.now() + config.windowSeconds * 1000);
         return {
           allowed: true,
           remaining: config.maxRequests,
-          resetTime,
+          resetTime: new Date(Date.now() + config.windowSeconds * 1000),
         };
       }
 
       const currentCount = Number.parseInt(currentValue, 10);
       if (!Number.isFinite(currentCount)) {
-        const resetTime = new Date(Date.now() + config.windowSeconds * 1000);
         return {
           allowed: true,
           remaining: config.maxRequests,
-          resetTime,
+          resetTime: new Date(Date.now() + config.windowSeconds * 1000),
         };
       }
 
-      const ttlSeconds = await this.client.ttl(key);
-      const resetTime = new Date(
-        Date.now() + (ttlSeconds > 0 ? ttlSeconds : config.windowSeconds) * 1000,
-      );
-      const remaining = Math.max(0, config.maxRequests - currentCount);
-      const allowed = currentCount < config.maxRequests;
+      const ttlSeconds = await this.store.ttl(key);
 
       return {
-        allowed,
-        remaining,
-        resetTime,
+        allowed: currentCount < config.maxRequests,
+        remaining: Math.max(0, config.maxRequests - currentCount),
+        resetTime: new Date(
+          Date.now() + (ttlSeconds > 0 ? ttlSeconds : config.windowSeconds) * 1000,
+        ),
       };
     } catch (error) {
       logger.withContext().error('Failed to get rate limit status', { identifier, error });

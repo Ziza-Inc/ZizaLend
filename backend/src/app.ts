@@ -233,6 +233,9 @@ app.get(
     res.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',
       checks: { database: dbReady, redis: redisReady },
+      // "redis: true" only means the cache answered. When REDIS_URL is unset the
+      // in-process store answers instead, so report which driver served it.
+      cache_driver: cacheService.driver,
       timestamp: Date.now(),
     });
   }),
@@ -267,6 +270,7 @@ app.get(
     res.status(coreOk ? 200 : 503).json({
       status: allOk ? 'ok' : coreOk ? 'degraded' : 'down',
       checks,
+      cache_driver: cacheService.driver,
       uptime: process.uptime(),
       timestamp: Date.now(),
     });
@@ -364,6 +368,7 @@ app.get(
           lagLedgers,
         },
       },
+      cache_driver: cacheService.driver,
       timestamp: Date.now(),
     });
   }),

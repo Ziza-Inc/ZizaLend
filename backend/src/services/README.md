@@ -9,7 +9,7 @@ The `services/` layer contains the core business logic of the ZizaLend backend. 
 | Service                        | Responsibility                                                              | Key Entry Points                                                                                      |
 | ------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | **authService**                | JWT generation/verification, signature validation, challenge flow           | `generateChallenge()`, `verifySignature()`, `generateJwtToken()`, `verifyJwtToken()`, `revokeToken()` |
-| **cacheService**               | Redis wrapper for key-value caching                                         | `get()`, `set()`, `delete()`, `setNotExists()`                                                        |
+| **cacheService**               | Key-value cache facade over Redis, or the in-process store when `REDIS_URL` is unset | `get()`, `set()`, `delete()`, `setNotExists()`                                                        |
 | **databaseService**            | User profiles, loan history, indexed events CRUD                            | `UserProfileService.*`, `LoanHistoryService.*`, `IndexedEventsService.*`                              |
 | **eventIndexer**               | Polls Stellar RPC for contract events, stores in PostgreSQL                 | `startIndexing()`, `stopIndexing()` (via IndexerManager)                                              |
 | **indexerManager**             | Lifecycle management for the event indexer                                  | `start()`, `stop()`                                                                                   |
@@ -47,7 +47,7 @@ See the [Background Jobs table in the original README](#background-jobs) for ful
 Services read configuration from `.env`. Key variables:
 
 - `JWT_SECRET`: HMAC secret for JWT signing
-- `REDIS_URL`: Redis connection string for caching
+- `REDIS_URL`: **Optional.** Redis connection string for caching, locks and rate limiting. When unset, `cacheService` and `rateLimitService` fall back to the in-process store in `utils/kvStore.ts`, which keeps state per-instance and drops it on restart.
 - `DATABASE_URL`: PostgreSQL connection string
 - `STELLAR_NETWORK`, `STELLAR_RPC_URL`, `STELLAR_NETWORK_PASSPHRASE`: Blockchain config
 - `LOAN_MANAGER_CONTRACT_ID`, `LENDING_POOL_CONTRACT_ID`, etc.: Contract addresses
