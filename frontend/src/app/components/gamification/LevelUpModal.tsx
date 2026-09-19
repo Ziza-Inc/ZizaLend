@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Crown, Sparkles, Gift } from "lucide-react";
 import { useGamificationStore } from "@/app/stores/useGamificationStore";
@@ -25,21 +25,25 @@ export function LevelUpModal() {
     }
   }, [showModal, soundEnabled, sound]);
 
-  if (!pendingLevelUp) return null;
-
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (soundEnabled) {
       sound.play("click");
     }
     dismissLevelUp();
-  };
+  }, [soundEnabled, sound, dismissLevelUp]);
 
+  // Called before the `pendingLevelUp` early return. A hook reached only on the
+  // renders where a pending level-up exists is a Rules-of-Hooks violation, and
+  // `useModalFocusTrap` already no-ops when `isOpen` is false, so there is
+  // nothing to gain from guarding the call.
   useModalFocusTrap({
     isOpen: showModal,
     onClose: handleClose,
     containerRef: modalRef,
     initialFocusRef: closeButtonRef,
   });
+
+  if (!pendingLevelUp) return null;
 
   return (
     <AnimatePresence>

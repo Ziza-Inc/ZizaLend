@@ -59,6 +59,34 @@ export function CreditScoreGauge({
 }: CreditScoreGaugeProps) {
   const numericScore = typeof score === "number" && Number.isFinite(score) ? score : null;
 
+  // Geometry and the derived arcs sit above the loading, error and empty-score
+  // returns below. A hook cannot run after a conditional return, so computing
+  // these here is what makes those branches legal: previously the `band` and
+  // `bandArcs` memos were reached only on the success path, which is a
+  // Rules-of-Hooks violation for every other render.
+  const cx = 120;
+  const cy = 120;
+  const r = 100;
+  const startAngle = -120;
+  const endAngle = 120;
+  const totalArc = endAngle - startAngle;
+
+  const band = useMemo(
+    // The fallback is never rendered: every use of `band` is guarded by the
+    // score checks below, but the memo itself has to run unconditionally.
+    () => getBand(numericScore ?? min),
+    [numericScore, min],
+  );
+
+  // Background arc segments per band
+  const bandArcs = useMemo(() => {
+    return BANDS.map((b) => {
+      const bStart = startAngle + ((b.range[0] - min) / (max - min)) * totalArc;
+      const bEnd = startAngle + ((Math.min(b.range[1], max) - min) / (max - min)) * totalArc;
+      return { ...b, path: describeArc(cx, cy, r, bStart, bEnd) };
+    });
+  }, [min, max, startAngle, totalArc]);
+
   // Loading state
   if (isLoading) {
     return (
@@ -148,28 +176,11 @@ export function CreditScoreGauge({
     );
   }
 
-  const band = useMemo(() => getBand(numericScore), [numericScore]);
   const delta = previousScore != null ? numericScore - previousScore : null;
-
-  const cx = 120;
-  const cy = 120;
-  const r = 100;
-  const startAngle = -120;
-  const endAngle = 120;
-  const totalArc = endAngle - startAngle;
 
   const clampedScore = Math.max(min, Math.min(max, numericScore));
   const fraction = (clampedScore - min) / (max - min);
   const scoreAngle = startAngle + fraction * totalArc;
-
-  // Background arc segments per band
-  const bandArcs = useMemo(() => {
-    return BANDS.map((b) => {
-      const bStart = startAngle + ((b.range[0] - min) / (max - min)) * totalArc;
-      const bEnd = startAngle + ((Math.min(b.range[1], max) - min) / (max - min)) * totalArc;
-      return { ...b, path: describeArc(cx, cy, r, bStart, bEnd) };
-    });
-  }, [min, max]);
 
   // Active arc from start to current score
   const activePath = describeArc(cx, cy, r, startAngle, scoreAngle);

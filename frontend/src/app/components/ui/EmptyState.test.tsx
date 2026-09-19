@@ -4,16 +4,20 @@ import { Info } from "lucide-react";
 
 // Mock next/link
 jest.mock("next/link", () => {
-  return ({
+  // Named rather than an anonymous arrow so `react/display-name` has something
+  // to report and the component shows up by name in failure output.
+  return function MockLink({
     children,
     href,
     className,
     ...props
-  }: React.ComponentProps<"a"> & { href: string }) => (
-    <a href={href} className={className} {...props}>
-      {children}
-    </a>
-  );
+  }: React.ComponentProps<"a"> & { href: string }) {
+    return (
+      <a href={href} className={className} {...props}>
+        {children}
+      </a>
+    );
+  };
 });
 
 describe("EmptyState", () => {

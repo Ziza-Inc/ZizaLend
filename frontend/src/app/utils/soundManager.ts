@@ -5,6 +5,8 @@
  * Handles loading, playing, and managing audio files.
  */
 
+import { useMemo } from "react";
+
 export type SoundEffect =
   | "levelUp"
   | "achievement"
@@ -141,24 +143,33 @@ export function getSoundManager(): SoundManager {
 }
 
 /**
- * Hook to use sound manager with gamification store integration
+ * Hook to use sound manager with gamification store integration.
+ *
+ * The returned object is memoised. It used to be rebuilt on every render, which
+ * mattered because callers list it in effect dependency arrays: a new identity
+ * each render made those effects re-run — and, for the level-up and XP-gain
+ * effects, replay their sound — on every render of the parent. The manager
+ * itself is a module singleton, so the identity is genuinely stable and the
+ * empty dependency list is accurate rather than a suppression.
  */
 export function useSoundEffect() {
-  if (typeof window === "undefined") {
+  return useMemo(() => {
+    if (typeof window === "undefined") {
+      return {
+        play: () => {},
+        setVolume: () => {},
+        setEnabled: () => {},
+      };
+    }
+
+    const manager = getSoundManager();
+
     return {
-      play: () => {},
-      setVolume: () => {},
-      setEnabled: () => {},
+      play: (effect: SoundEffect) => manager.play(effect),
+      setVolume: (volume: number) => manager.setVolume(volume),
+      setEnabled: (enabled: boolean) => manager.setEnabled(enabled),
+      preload: (effect: SoundEffect) => manager.preload(effect),
+      preloadAll: () => manager.preloadAll(),
     };
-  }
-
-  const manager = getSoundManager();
-
-  return {
-    play: (effect: SoundEffect) => manager.play(effect),
-    setVolume: (volume: number) => manager.setVolume(volume),
-    setEnabled: (enabled: boolean) => manager.setEnabled(enabled),
-    preload: (effect: SoundEffect) => manager.preload(effect),
-    preloadAll: () => manager.preloadAll(),
-  };
+  }, []);
 }

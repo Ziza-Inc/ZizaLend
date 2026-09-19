@@ -89,6 +89,15 @@ type Remittance = components["schemas"]["Remittance"];
 Most consumers should use [`@zizalend/sdk`](../sdk/README.md) instead, which wraps these types
 in a typed client with authentication, retries and error handling.
 
+## Versioning
+
+This package is **not published to a registry** and is consumed from this
+repository as a workspace package. What counts as a breaking change here is a
+change to the committed spec that removes a path, schema or property — not a
+change to `src/generated.ts`, which is regenerated on every build. See
+[docs/VERSIONING.md](../../docs/VERSIONING.md) for the full policy, including how
+the version relates to `@zizalend/sdk`.
+
 ## Related
 
 | Package | Description |

@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface XPGainAnimationProps {
   amount: number;
@@ -11,30 +11,52 @@ interface XPGainAnimationProps {
   position?: "top" | "center" | "bottom";
 }
 
+/** How long the chip stays on screen before the owner is told it is finished. */
+export const XP_GAIN_DISPLAY_MS = 2000;
+
+const POSITION_CLASSES: Record<NonNullable<XPGainAnimationProps["position"]>, string> = {
+  top: "top-4",
+  center: "top-1/2 -translate-y-1/2",
+  bottom: "bottom-4",
+};
+
+/**
+ * A transient "+N XP" chip.
+ *
+ * The hide is driven by a timeout that flips local `dismissed` state from inside
+ * a callback rather than synchronously in the effect body, so it does not trip
+ * `react-hooks/set-state-in-effect`. `onComplete` is read through a ref so a new
+ * inline callback identity does not restart the timer on every parent render —
+ * the previous version listed `onComplete` as a dependency and therefore reset
+ * the two-second window each time its parent re-rendered.
+ *
+ * Give the component a fresh `key` per gain so `dismissed` starts over.
+ */
 export function XPGainAnimation({
   amount,
   show,
   onComplete,
   position = "top",
 }: XPGainAnimationProps) {
-  const [isVisible, setIsVisible] = useState(show);
+  const [dismissed, setDismissed] = useState(false);
+  const onCompleteRef = useRef(onComplete);
 
   useEffect(() => {
-    if (show) {
-      setIsVisible(true);
-      const timer = setTimeout(() => {
-        setIsVisible(false);
-        onComplete?.();
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [show, onComplete]);
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
-  const positionClasses = {
-    top: "top-4",
-    center: "top-1/2 -translate-y-1/2",
-    bottom: "bottom-4",
-  };
+  useEffect(() => {
+    if (!show) return;
+
+    const timer = setTimeout(() => {
+      setDismissed(true);
+      onCompleteRef.current?.();
+    }, XP_GAIN_DISPLAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [show]);
+
+  const isVisible = show && !dismissed;
 
   return (
     <AnimatePresence>
@@ -44,7 +66,7 @@ export function XPGainAnimation({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.8, y: -20 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className={`fixed left-1/2 ${positionClasses[position]} z-50 -translate-x-1/2`}
+          className={`fixed left-1/2 ${POSITION_CLASSES[position]} z-50 -translate-x-1/2`}
         >
           <div className="flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-3 shadow-lg">
             <motion.div

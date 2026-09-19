@@ -107,6 +107,11 @@ export function useDepositOperation(options?: {
   const { signTransaction } = useWallet();
   const buildDeposit = useDepositToPool();
   const { data: poolStats } = usePoolStats();
+  // Held as its own binding so the callbacks below can name a primitive in their
+  // dependency arrays. Depending on `poolStats?.poolTokenAddress` inline makes
+  // the React Compiler infer the whole `poolStats` object as the source
+  // dependency, which it then reports as a memoisation it cannot preserve.
+  const poolTokenAddress = poolStats?.poolTokenAddress;
 
   const uid = useId();
   const transactionId = `deposit-${uid}`;
@@ -125,7 +130,7 @@ export function useDepositOperation(options?: {
       setError(null);
 
       try {
-        const token = poolStats?.poolTokenAddress;
+        const token = poolTokenAddress;
         if (!token) {
           throw new Error("Pool token address not found. Please wait for stats to load.");
         }
@@ -177,7 +182,7 @@ export function useDepositOperation(options?: {
         throw err;
       }
     },
-    [transaction, queryClient, options],
+    [transaction, queryClient, options, buildDeposit, poolTokenAddress, signTransaction],
   );
 
   return {
@@ -199,6 +204,11 @@ export function useWithdrawalOperation(options?: {
   const { signTransaction } = useWallet();
   const buildWithdraw = useWithdrawFromPool();
   const { data: poolStats } = usePoolStats();
+  // Held as its own binding so the callbacks below can name a primitive in their
+  // dependency arrays. Depending on `poolStats?.poolTokenAddress` inline makes
+  // the React Compiler infer the whole `poolStats` object as the source
+  // dependency, which it then reports as a memoisation it cannot preserve.
+  const poolTokenAddress = poolStats?.poolTokenAddress;
 
   const uid = useId();
   const transactionId = `withdrawal-${uid}`;
@@ -217,7 +227,7 @@ export function useWithdrawalOperation(options?: {
       setError(null);
 
       try {
-        const token = poolStats?.poolTokenAddress;
+        const token = poolTokenAddress;
         if (!token) {
           throw new Error("Pool token address not found. Please wait for stats to load.");
         }
@@ -269,7 +279,7 @@ export function useWithdrawalOperation(options?: {
         throw err;
       }
     },
-    [transaction, queryClient, options],
+    [transaction, queryClient, options, buildWithdraw, poolTokenAddress, signTransaction],
   );
 
   return {

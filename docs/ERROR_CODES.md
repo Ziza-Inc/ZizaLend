@@ -28,7 +28,7 @@ inside a failed invocation, and simulation reports the code without needing a le
 |---|---|---:|
 | RemittanceNFT | `NftError` | 21 |
 | LoanManager | `LoanError` | 25 |
-| LendingPool | `PoolError` | 14 |
+| LendingPool | `PoolError` | 16 |
 | MultisigGovernance | `GovernanceError` | 20 |
 | API | `ErrorCode` | 35 |
 

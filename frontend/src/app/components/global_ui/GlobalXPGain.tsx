@@ -1,61 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useGamificationStore } from "../../stores/useGamificationStore";
 import { XPGainAnimation } from "../gamification/XPGainAnimation";
 import { useSoundEffect } from "../../utils/soundManager";
 
+/**
+ * Renders the queued "+N XP" chips, one at a time.
+ *
+ * The queue is read straight from the gamification store. It used to be rebuilt
+ * into local `useState` from two effects — one to enqueue `recentXPGain`, one to
+ * promote the head of the queue — and both were synchronous `setState` calls
+ * inside an effect. Keeping the queue in the store removes the mirror entirely:
+ * React reads it, `addXP` writes it, and nothing has to be copied back and
+ * forth on every change.
+ */
 export function GlobalXPGain() {
-  const recentXPGain = useGamificationStore((state) => state.recentXPGain);
-  const clearRecentXPGain = useGamificationStore((state) => state.clearRecentXPGain);
+  const queue = useGamificationStore((state) => state.xpGainQueue);
+  const shiftXPGain = useGamificationStore((state) => state.shiftXPGain);
   const soundEnabled = useGamificationStore((state) => state.soundEnabled);
   const sound = useSoundEffect();
 
-  const [queue, setQueue] = useState<{ amount: number; reason: string; id: number }[]>([]);
-  const [activeGain, setActiveGain] = useState<{
-    amount: number;
-    reason: string;
-    id: number;
-  } | null>(null);
+  const activeGain = queue[0] ?? null;
+  const activeId = activeGain?.id ?? null;
 
   useEffect(() => {
-    if (recentXPGain) {
-      setQueue((prev) => {
-        // Prevent duplicate enqueue
-        if (
-          prev.find((item) => item.id === recentXPGain.id) ||
-          activeGain?.id === recentXPGain.id
-        ) {
-          return prev;
-        }
-        return [...prev, recentXPGain];
-      });
-      clearRecentXPGain();
-    }
-  }, [recentXPGain, clearRecentXPGain, activeGain]);
-
-  useEffect(() => {
-    if (!activeGain && queue.length > 0) {
-      const next = queue[0];
-      setActiveGain(next);
-      setQueue((prev) => prev.slice(1));
-      if (soundEnabled) {
-        sound.play("xpGain");
-      }
-    }
-  }, [queue, activeGain, soundEnabled, sound]);
-
-  if (!activeGain) return null;
+    if (activeId === null || !soundEnabled) return;
+    sound.play("xpGain");
+  }, [activeId, soundEnabled, sound]);
 
   return (
-    <div key={activeGain.id} className="pointer-events-none">
+    <div className="pointer-events-none">
+      {/* Keyed per gain so the chip remounts — and its dismissal timer restarts
+          — for each queued award. */}
       <XPGainAnimation
-        key={activeGain.id}
-        amount={activeGain.amount}
-        show={true}
-        onComplete={() => {
-          setActiveGain(null);
-        }}
+        key={activeId ?? "idle"}
+        amount={activeGain?.amount ?? 0}
+        show={activeGain !== null}
+        onComplete={shiftXPGain}
         position="top"
       />
     </div>

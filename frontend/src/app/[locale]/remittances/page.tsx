@@ -112,7 +112,10 @@ export default function RemittancesPage() {
     { enabled: isConnected },
   );
 
-  const remittances = remittancesPage?.items ?? [];
+  // Memoised so its identity is stable across renders: the filter below lists
+  // it as a dependency, and a fresh `[]`/array on every render would make that
+  // `useMemo` recompute every time.
+  const remittances = useMemo(() => remittancesPage?.items ?? [], [remittancesPage]);
   const totalPages = Math.max(
     page,
     remittancesPage?.pageInfo.hasNext

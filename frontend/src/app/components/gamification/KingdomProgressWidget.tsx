@@ -116,7 +116,7 @@ export function KingdomProgressWidget({ className, compact = false }: KingdomPro
               👑 Maximum Level Reached!
             </p>
             <p className="mt-1 text-xs text-purple-700 dark:text-purple-300">
-              You've achieved the highest rank in the Kingdom
+              You&apos;ve achieved the highest rank in the Kingdom
             </p>
           </div>
         )}

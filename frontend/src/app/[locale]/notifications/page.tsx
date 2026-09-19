@@ -24,20 +24,30 @@ const NOTIFICATION_TYPES: Array<NotificationType | "all"> = [
   "score_changed",
 ];
 
+/**
+ * Returns the glyph for a notification type, as an element rather than as a
+ * component type.
+ *
+ * It used to `return Check` (a component) which the row then assigned to a
+ * capitalised local and rendered as `<Icon />`. Building a component value
+ * during render is exactly what `react-hooks/static-components` rejects; a
+ * switch that yields an element keeps the same markup without defining a
+ * component mid-render.
+ */
 function notificationIcon(type: NotificationType) {
   switch (type) {
     case "loan_approved":
-      return Check;
+      return <Check className="h-5 w-5" />;
     case "repayment_confirmed":
-      return CheckCheck;
+      return <CheckCheck className="h-5 w-5" />;
     case "repayment_due":
-      return Clock;
+      return <Clock className="h-5 w-5" />;
     case "loan_defaulted":
-      return AlertTriangle;
+      return <AlertTriangle className="h-5 w-5" />;
     case "score_changed":
-      return TrendingUp;
+      return <TrendingUp className="h-5 w-5" />;
     default:
-      return Bell;
+      return <Bell className="h-5 w-5" />;
   }
 }
 
@@ -67,8 +77,6 @@ function NotificationRow({
   unreadLabel: string;
   markReadLabel: string;
 }) {
-  const Icon = notificationIcon(notification.type);
-
   return (
     <article
       className={`rounded-xl border p-4 transition ${
@@ -80,7 +88,7 @@ function NotificationRow({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-violet-600 dark:bg-zinc-900 dark:text-violet-300">
-            <Icon className="h-5 w-5" />
+            {notificationIcon(notification.type)}
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -131,7 +139,9 @@ export default function NotificationsPage() {
     unread: unreadOnly,
   });
 
-  const notifications = data?.notifications ?? [];
+  // Memoised so the identity is stable: the filter below depends on it, and a
+  // fresh `[]`/array each render made that `useMemo` recompute every time.
+  const notifications = useMemo(() => data?.notifications ?? [], [data]);
   const filteredNotifications = useMemo(() => {
     return notifications.filter((notification) => {
       const matchesType = activeType === "all" || notification.type === activeType;

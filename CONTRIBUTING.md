@@ -124,6 +124,79 @@ cargo clippy
 cargo test
 ```
 
+## Required Checks
+
+Every pull request into `main` has to pass the checks below before it can merge.
+Each row says what the check actually verifies and the command that reproduces it
+on a clean checkout, so a red check is a command you can run rather than a
+message you have to guess at.
+
+Jobs live in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) unless the
+table says otherwise. Everything runs on Node 22 — the version pinned in
+[`.nvmrc`](.nvmrc) — so run `nvm use` first if you manage Node with nvm.
+
+| Check | What it verifies | Reproduce locally |
+| :--- | :--- | :--- |
+| `supply-chain-audit` | No lockfile contains a known-malicious package, and every dependency's licence is on the allowlist | `node scripts/check-dependency-review-scope.mjs` |
+| `backend` | Backend lint, build and typecheck, the migrations apply, and the Jest suite passes against PostgreSQL 16 and Redis 7 | `cd backend && npm ci && npm run lint && npm run build && npm run typecheck && npm run migrate:up && npm test` with the [backend environment](#environment-for-the-backend-suite) exported |
+| `migration-paths` | Reports whether the pull request touched `backend/migrations/**`; this is the gate for `migration-check` | — (a paths filter, not a command) |
+| `migration-check` | Migrations apply from an empty schema, roll back one at a time, apply again, and a renamed migration is refused and then reconciled | `node scripts/check-migration-timestamps.mjs`, then the migrate up/down loop in `ci.yml` |
+| `frontend` | Frontend lint (Prettier), i18n key completeness plus a negative check that the i18n checker can fail, typecheck, Jest, `next build`, and the per-route bundle budget | `cd frontend && npm ci && npm run lint && npm run i18n:check && npm run typecheck && npm test && npm run build && npm run check:bundle-size` |
+| `frontend-paths` | Reports whether the pull request touched `frontend/**`; this is the gate for `e2e` | — (a paths filter, not a command) |
+| `e2e` | Playwright runs the chromium project end to end | `cd frontend && npx playwright install --with-deps chromium && npx playwright test --project=chromium` |
+| `packages` | The OpenAPI types regenerate cleanly, the SDK error-code union matches `backend/src/errors/errorCodes.ts`, and both packages typecheck and build | `cd packages/types && npm install && npm run generate && npm run typecheck && npm run build`, then `cd ../sdk && npm install && node ../../scripts/generate-sdk-error-codes.mjs --check && npm run typecheck && npm run build` |
+| `scripts-typecheck` | The deploy scripts typecheck, and the quarantine ledger is still honest | `cd scripts && npm ci && npm run typecheck`, then `node scripts/check-quarantine.mjs` from the repository root |
+| `backend-format` | Backend sources are Prettier-formatted | `cd backend && npm ci && npm run format:check` |
+| `shell-check` | Every `*.sh` in the repository parses | `find . -name '*.sh' -not -path './node_modules/*' -exec bash -n {} \;` |
+| `conflict-check` | No unresolved merge-conflict markers are committed | `grep -rE '^(<<<<<<<\|=======\|>>>>>>>)' --include='*.ts' --include='*.tsx' --include='*.rs' --include='*.js' --include='*.md' --include='*.json' .` |
+| `openapi-check` | `packages/openapi.json` is well-formed and carries both an `openapi` version and an `info.title` | `node -e "JSON.parse(require('fs').readFileSync('packages/openapi.json','utf8'))"` |
+| `env-docs-check` | Every variable in the `.env.example` files appears in [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | `node scripts/check-env-docs.mjs` |
+| `issue-backlog` | The drafts in `docs/contributor-issues/` validate and the backlog index is current | `node scripts/publish-issues.mjs --validate-only --check-index` |
+| `contracts` | Rust formatting, Clippy with warnings denied, the contract test suite, a release WASM build, the per-contract size budgets, tarpaulin coverage at or above 75%, and that the fuzz targets still compile | `cd contracts && cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test -- --test-threads=1 && cargo build --workspace --target wasm32v1-none --release --exclude zizalend-integration-tests`, then `node scripts/check-wasm-size.mjs` from the repository root |
+
+### Checks from other workflows
+
+| Check | Workflow | What it verifies | Reproduce locally |
+| :--- | :--- | :--- | :--- |
+| `commitlint` | [`commitlint.yml`](.github/workflows/commitlint.yml) | Every commit on the branch follows Conventional Commits, with a scope listed in [`commitlint.config.js`](commitlint.config.js) | `npx commitlint --from origin/main --to HEAD` |
+| `dependency-review` | [`dependency-review.yml`](.github/workflows/dependency-review.yml) | Dependencies added by the pull request are licence-compatible and free of known advisories | — (runs on GitHub only) |
+| `analyze` | [`codeql.yml`](.github/workflows/codeql.yml) | CodeQL static analysis | — (runs on GitHub only) |
+| `loadtest` | [`loadtest.yml`](.github/workflows/loadtest.yml) | k6 scenarios against a deployed environment | — (needs a live environment) |
+
+### Environment for the backend suite
+
+The `backend` job supplies these itself. Export the same values before running
+the suite locally so you reproduce the job rather than a different configuration:
+
+```bash
+export NODE_ENV=test
+export DATABASE_URL=postgres://pguser:pgpass@localhost:5432/ZizaLend_test
+export REDIS_URL=redis://localhost:6379
+export JWT_SECRET=test_jwt_secret
+export STELLAR_RPC_URL=https://rpc.test.invalid
+export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+```
+
+The `backend` job in [`ci.yml`](.github/workflows/ci.yml) also passes the four
+contract IDs and the pool token address; copy them from there if a test needs
+them. [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) explains what each variable
+means.
+
+### When a check fails
+
+- **`backend`, `frontend` or `contracts`** — re-run the single step named in the
+  failing job rather than the whole job. The commands above are the ones CI runs.
+- **`frontend` bundle budget** — `npm run analyze` writes a treemap showing what
+  the route is made of. If the growth is intended, raise that route's entry in
+  `frontend/bundle-budget.json` in the same pull request and say why.
+- **`migration-check`** — never rename a migration that has already been applied.
+  Add a new one instead, or run `npm run migrate:reconcile` to record a rename
+  that has already shipped.
+- **`issue-backlog`** — `node scripts/publish-issues.mjs --validate-only` names
+  the malformed draft and the field it is missing.
+- **`commitlint`** — amend the message rather than the code. The scopes are
+  listed in [`commitlint.config.js`](commitlint.config.js).
+
 ## Style Guides
 
 - **TypeScript**: Use functional components and hooks. Prefer `interface` over `type`. Ensure strict typing.

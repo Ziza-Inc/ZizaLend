@@ -109,7 +109,7 @@ export function StepFinalSignature({
     return () => {
       cancelled = true;
     };
-  }, [borrowerAddress, principal]);
+  }, [borrowerAddress, principal, data.termDays]);
 
   useEffect(() => {
     return () => {

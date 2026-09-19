@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "analyze": "ANALYZE=true next build",
+    "check:bundle-size": "node scripts/check-bundle-size.mjs",
     "start": "next start",
     "lint": "prettier --check .",
     "typecheck": "tsc --noEmit",

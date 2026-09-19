@@ -4,9 +4,41 @@ Typed API client for the ZizaLend decentralized lending protocol. Provides full 
 
 ## Installation
 
+**These packages are not published to a registry.** The command that used to be
+here — `npm install @zizalend/sdk @zizalend/types` — returns a 404: neither
+package exists on npm, and no workflow in this repository publishes one.
+`packages/sdk/package.json` also depends on `@zizalend/types` as `"*"`, a
+specifier that only resolves inside the npm workspace, so even a git install
+would not resolve the dependency. The full policy, including what has to happen
+before the first publish, is in [docs/VERSIONING.md](../../docs/VERSIONING.md).
+
+### From a clone (the supported path)
+
 ```bash
-npm install @zizalend/sdk @zizalend/types
+git clone https://github.com/Ziza-Inc/ZizaLend.git
+cd ZizaLend
+npm install                                              # installs both workspaces
+npm run build --workspace packages/types --workspace packages/sdk
 ```
+
+Order matters on a cold clone: `@zizalend/types` is generated from
+[`packages/openapi.json`](../openapi.json), and this package is compiled against
+that generated output, so `types` builds first. The root `npm run build` takes
+care of it.
+
+Inside the repository the workspace resolves the import, so no path alias is
+needed:
+
+```ts
+import { Zizalend } from "@zizalend/sdk";
+```
+
+### From outside the repository
+
+Not supported yet. There is no registry entry to install from, and a git
+dependency would not resolve `@zizalend/types: "*"`. Track
+[docs/VERSIONING.md](../../docs/VERSIONING.md) for the release workflow that
+changes this.
 
 ## Quick Start
 
@@ -583,6 +615,9 @@ import type {
 | ----------------- | ------------------------------- |
 | `@zizalend/sdk`   | Typed API client (this package) |
 | `@zizalend/types` | Auto-generated OpenAPI types    |
+
+For what counts as a breaking change, how versions move, and what a consumer
+should pin, see [docs/VERSIONING.md](../../docs/VERSIONING.md).
 
 ## License
 
