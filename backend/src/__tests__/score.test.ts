@@ -143,6 +143,7 @@ describe('POST /api/score/update', () => {
 
     const response = await request(app)
       .post('/api/score/update')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', 'test-internal-key')
       .send({ userId: 'user123', repaymentAmount: 500, onTime: true });
 
@@ -153,6 +154,7 @@ describe('POST /api/score/update', () => {
   it('should reject negative repaymentAmount', async () => {
     const response = await request(app)
       .post('/api/score/update')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', 'test-internal-key')
       .send({ userId: 'user123', repaymentAmount: -100, onTime: true });
 

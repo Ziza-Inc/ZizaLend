@@ -14,6 +14,7 @@ import {
   updateScoreSchema,
 } from '../schemas/scoreSchemas.js';
 import { requireApiKey } from '../middleware/auth.js';
+import { auditLog } from '../middleware/auditLog.js';
 import { scoreUpdateRateLimit } from '../middleware/rateLimitMiddleware.js';
 import {
   requireJwtAuth,
@@ -22,6 +23,12 @@ import {
 } from '../middleware/jwtAuth.js';
 
 const router = Router();
+
+// `POST /score/update` is a privileged action — adjusting a credit score — and it is reached
+// with an admin API key rather than through the admin router, so it would otherwise be the one
+// privileged write with no record. Mounted on the router so the reads below pass through
+// untouched and any mutating route added later is covered by construction. See auditPolicy.ts.
+router.use(auditLog);
 
 /**
  * @swagger

@@ -59,6 +59,7 @@ async function seedDefaultedLoan(authToken: string) {
 
   const loanRes = await request(app)
     .post('/api/loans')
+    .set('Idempotency-Key', crypto.randomUUID())
     .set('Authorization', `Bearer ${authToken}`)
     .send({ amount: 1000, term: 12 });
 
@@ -66,6 +67,7 @@ async function seedDefaultedLoan(authToken: string) {
 
   const defaultRes = await request(app)
     .post(`/api/loans/${LOAN_ID}/mark-defaulted`)
+    .set('Idempotency-Key', crypto.randomUUID())
     .set('Authorization', `Bearer ${authToken}`)
     .send({ borrower: TEST_PUBLIC_KEY });
 
@@ -109,6 +111,7 @@ describe('loan dispute resolution integration flow', () => {
 
     const contestRes = await request(app)
       .post(`/api/loans/${LOAN_ID}/contest-default`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${authToken}`)
       .send({ reason: 'Indexer lag caused an incorrect default event.' });
 
@@ -137,6 +140,7 @@ describe('loan dispute resolution integration flow', () => {
 
     const resolveRes = await request(app)
       .post(`/api/admin/loan-disputes/${DISPUTE_ID}/resolve`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', ADMIN_API_KEY)
       .send({
         action: 'confirm',
@@ -185,6 +189,7 @@ describe('loan dispute resolution integration flow', () => {
 
     const contestRes = await request(app)
       .post(`/api/loans/${LOAN_ID}/contest-default`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${authToken}`)
       .send({ reason: 'The repayment posted before the indexer caught up.' });
 
@@ -208,6 +213,7 @@ describe('loan dispute resolution integration flow', () => {
 
     const resolveRes = await request(app)
       .post(`/api/admin/loan-disputes/${DISPUTE_ID}/resolve`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', ADMIN_API_KEY)
       .send({
         action: 'reverse',

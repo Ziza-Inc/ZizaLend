@@ -83,7 +83,10 @@ async function driveTraffic(): Promise<void> {
   await request(app).get('/wp-admin/probe-0123456789abcdef0123456789abcdef');
   // A rejected request, to exercise a non-2xx class and code.
   await request(app).get('/metrics');
-  await request(app).post('/api/v1/loans/42/repay').send({});
+  await request(app)
+    .post('/api/v1/loans/42/repay')
+    .set('Idempotency-Key', crypto.randomUUID())
+    .send({});
 }
 
 describe('label normalisers', () => {

@@ -301,14 +301,25 @@ inserted on first run (value 0).
 | Column | Type | Constraints | Notes |
 |---|---|---|---|
 | `id` | `serial` | `PRIMARY KEY` | |
-| `actor` | `varchar(255)` | `NOT NULL` | Admin address or `SYSTEM` |
-| `action` | `varchar(255)` | `NOT NULL` | e.g. `ADMIN_CONFIG_*`, `loan_approved` |
-| `target` | `varchar(255)` | | e.g. `contract:0x...`, `loan:42` |
-| `payload` | `jsonb` | | Structured event details |
+| `actor` | `varchar(255)` | `NOT NULL` | Admin address or `INTERNAL_API_KEY`; `unknown` when the request was refused before authentication |
+| `action` | `varchar(255)` | `NOT NULL` | The request's **route pattern** and method, e.g. `POST /admin/disputes/:disputeId/resolve` |
+| `target` | `varchar(255)` | | The thing acted on, e.g. `DisputeID:7`, `LoanID:123`, `LoanIDs:[1,2,3]` |
+| `payload` | `jsonb` | | The request body, with credentials redacted (see `SECURITY-MODEL.md`) |
 | `ip_address` | `varchar(50)` | | HTTP request IP (null for on-chain actions) |
+| `status` | `integer` | | The HTTP status the action produced; `NULL` when the requester disconnected before a response was sent |
+| `reason` | `text` | | Why the action failed, e.g. `VALIDATION_ERROR: amount must be positive`. `NULL` on success |
 | `created_at` | `timestamp` | `DEFAULT CURRENT_TIMESTAMP` | |
 
 **Indexes**: on `actor`, `action`, `created_at`.
+
+`action` records the route *pattern* rather than the requested path, because it is the column an
+operator filters on: a concrete path would make every dispute id a different action, so "who
+resolved disputes?" would return nothing. The identity of the record acted on is in `target`.
+
+Rows are written for privileged actions whether they succeed, fail, or are refused before reaching
+a handler. The middleware is mounted on the privileged routers rather than on individual routes
+(`backend/src/routes/adminRoutes.ts`, `backend/src/routes/indexerRoutes.ts`), so a route added later
+is covered by construction — see `SECURITY-MODEL.md` for the reasoning.
 
 ---
 

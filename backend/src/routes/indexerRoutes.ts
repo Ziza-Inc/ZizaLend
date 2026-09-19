@@ -16,6 +16,13 @@ import { auditLog } from '../middleware/auditLog.js';
 
 const router = Router();
 
+// Every privileged action on this router is audited, including the ones that fail and the
+// ones whose requester hangs up mid-action. Mounted here rather than on each route because
+// the property that matters is completeness: a route added later must not be able to
+// escape the trail by not being listed. Reads pass through untouched — see auditPolicy.ts
+// for which methods are recorded and why.
+router.use(auditLog);
+
 /**
  * @swagger
  * /indexer/status:
@@ -211,7 +218,6 @@ router.post(
   '/webhooks',
   requireApiKey('admin:webhooks'),
   strictRateLimiter,
-  auditLog,
   createWebhookSubscription,
 );
 
@@ -243,7 +249,6 @@ router.delete(
   '/webhooks/:subscriptionId',
   requireApiKey('admin:webhooks'),
   strictRateLimiter,
-  auditLog,
   deleteWebhookSubscription,
 );
 

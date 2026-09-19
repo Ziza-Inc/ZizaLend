@@ -133,6 +133,7 @@ describe('/user/profile', () => {
 
     const response = await request(app)
       .patch('/user/profile')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${bearerToken()}`)
       .send({
         displayName: 'Ada Lovelace',
@@ -161,6 +162,7 @@ describe('/user/profile', () => {
   it('rejects invalid patch payloads', async () => {
     const response = await request(app)
       .patch('/user/profile')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${bearerToken()}`)
       .send({ email: 'not-an-email' });
 

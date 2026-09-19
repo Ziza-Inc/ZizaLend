@@ -219,6 +219,7 @@ describe('POST /api/loans/request', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 30 });
     expect(response.status).toBe(401);
   });
@@ -227,6 +228,7 @@ describe('POST /api/loans/request', () => {
     const otherBorrower = Keypair.random().publicKey();
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 1000, borrowerPublicKey: otherBorrower, termDays: 30 });
     expect(response.status).toBe(403);
@@ -240,6 +242,7 @@ describe('POST /api/loans/request', () => {
 
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 30 });
 
@@ -252,6 +255,7 @@ describe('POST /api/loans/request', () => {
   it('should reject missing amount', async () => {
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ borrowerPublicKey: TEST_BORROWER, termDays: 30 });
     expect(response.status).toBe(400);
@@ -260,6 +264,7 @@ describe('POST /api/loans/request', () => {
   it('should reject a request with no term, rather than picking one', async () => {
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER });
     expect(response.status).toBe(400);
@@ -273,6 +278,7 @@ describe('POST /api/loans/request', () => {
 
     const response = await request(app)
       .post('/api/loans/request')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 1000, borrowerPublicKey: TEST_BORROWER, termDays: 60 });
 
@@ -290,6 +296,7 @@ describe('POST /api/loans/submit', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/submit')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ signedTxXdr: 'c2lnbmVkLXhkcg==' });
     expect(response.status).toBe(401);
   });
@@ -302,6 +309,7 @@ describe('POST /api/loans/submit', () => {
 
     const response = await request(app)
       .post('/api/loans/submit')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ signedTxXdr: 'c2lnbmVkLXhkci1kYXRh' });
 
@@ -314,6 +322,7 @@ describe('POST /api/loans/submit', () => {
   it('should reject missing signedTxXdr', async () => {
     const response = await request(app)
       .post('/api/loans/submit')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({});
     expect(response.status).toBe(400);
@@ -473,6 +482,7 @@ describe('POST /api/loans/amortization-preview', () => {
   it('should return amortization preview for valid terms', async () => {
     const response = await request(app)
       .post('/api/loans/amortization-preview')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer('GABC123'))
       .send({ amount: 1000, termDays: 60 });
 
@@ -490,6 +500,7 @@ describe('POST /api/loans/amortization-preview', () => {
   it('should reject invalid termDays', async () => {
     const response = await request(app)
       .post('/api/loans/amortization-preview')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer('GABC123'))
       .send({ amount: 1000, termDays: 45 });
 
@@ -504,6 +515,7 @@ describe('POST /api/loans/:loanId/repay', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/1/repay')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
     expect(response.status).toBe(401);
   });
@@ -521,6 +533,7 @@ describe('POST /api/loans/:loanId/repay', () => {
 
     const response = await request(app)
       .post('/api/loans/1/repay')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
 
@@ -537,6 +550,7 @@ describe('POST /api/loans/:loanId/repay', () => {
 
     const response = await request(app)
       .post('/api/loans/1/repay')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
 
@@ -550,6 +564,7 @@ describe('POST /api/loans/:loanId/repay', () => {
 
     const response = await request(app)
       .post('/api/loans/1/repay')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ borrowerPublicKey: TEST_BORROWER });
 
@@ -559,6 +574,7 @@ describe('POST /api/loans/:loanId/repay', () => {
   it('should reject a token missing the write:loans scope', async () => {
     const response = await request(app)
       .post('/api/loans/1/repay')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearerWithScopes(TEST_BORROWER, ['read:loans']))
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
 
@@ -584,6 +600,7 @@ describe('POST /api/loans/:loanId/submit', () => {
 
     const response = await request(app)
       .post('/api/loans/1/submit')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ signedTxXdr: 'c2lnbmVkLXJlcGF5LXhkcg==' });
 
@@ -600,6 +617,7 @@ describe('POST /api/loans/:loanId/build-deposit-collateral', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/1/build-deposit-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
     expect(response.status).toBe(401);
   });
@@ -616,6 +634,7 @@ describe('POST /api/loans/:loanId/build-deposit-collateral', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-deposit-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
 
@@ -632,6 +651,7 @@ describe('POST /api/loans/:loanId/build-deposit-collateral', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-deposit-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ amount: 500, borrowerPublicKey: TEST_BORROWER });
 
@@ -646,6 +666,7 @@ describe('POST /api/loans/:loanId/build-release-collateral', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/1/build-release-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ borrowerPublicKey: TEST_BORROWER });
     expect(response.status).toBe(401);
   });
@@ -662,6 +683,7 @@ describe('POST /api/loans/:loanId/build-release-collateral', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-release-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ borrowerPublicKey: TEST_BORROWER });
 
@@ -678,6 +700,7 @@ describe('POST /api/loans/:loanId/build-release-collateral', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-release-collateral')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ borrowerPublicKey: TEST_BORROWER });
 
@@ -690,11 +713,14 @@ describe('POST /api/loans/:loanId/build-release-collateral', () => {
 // ---------------------------------------------------------------------------
 describe('POST /api/loans/:loanId/build-refinance', () => {
   it('should reject unauthenticated requests', async () => {
-    const response = await request(app).post('/api/loans/1/build-refinance').send({
-      newAmount: 2000,
-      newTerm: 34560,
-      borrowerPublicKey: TEST_BORROWER,
-    });
+    const response = await request(app)
+      .post('/api/loans/1/build-refinance')
+      .set('Idempotency-Key', crypto.randomUUID())
+      .send({
+        newAmount: 2000,
+        newTerm: 34560,
+        borrowerPublicKey: TEST_BORROWER,
+      });
     expect(response.status).toBe(401);
   });
 
@@ -710,6 +736,7 @@ describe('POST /api/loans/:loanId/build-refinance', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-refinance')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({
         newAmount: 2000,
@@ -730,6 +757,7 @@ describe('POST /api/loans/:loanId/build-refinance', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-refinance')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({
         newAmount: 2000,
@@ -747,6 +775,7 @@ describe('POST /api/loans/:loanId/build-refinance', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-refinance')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ newAmount: 2000, borrowerPublicKey: TEST_BORROWER });
 
@@ -761,6 +790,7 @@ describe('POST /api/loans/:loanId/build-extend', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/1/build-extend')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ extraLedgers: 8640, borrowerPublicKey: TEST_BORROWER });
     expect(response.status).toBe(401);
   });
@@ -777,6 +807,7 @@ describe('POST /api/loans/:loanId/build-extend', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-extend')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ extraLedgers: 8640, borrowerPublicKey: TEST_BORROWER });
 
@@ -793,6 +824,7 @@ describe('POST /api/loans/:loanId/build-extend', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-extend')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ extraLedgers: 8640, borrowerPublicKey: TEST_BORROWER });
 
@@ -806,6 +838,7 @@ describe('POST /api/loans/:loanId/build-extend', () => {
 
     const response = await request(app)
       .post('/api/loans/1/build-extend')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ borrowerPublicKey: TEST_BORROWER });
 
@@ -820,6 +853,7 @@ describe('POST /api/loans/:loanId/liquidate/build', () => {
   it('should reject unauthenticated requests', async () => {
     const response = await request(app)
       .post('/api/loans/1/liquidate/build')
+      .set('Idempotency-Key', crypto.randomUUID())
       .send({ liquidatorPublicKey: TEST_BORROWER });
     expect(response.status).toBe(401);
   });
@@ -832,6 +866,7 @@ describe('POST /api/loans/:loanId/liquidate/build', () => {
 
     const response = await request(app)
       .post('/api/loans/1/liquidate/build')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ liquidatorPublicKey: TEST_BORROWER });
 
@@ -846,6 +881,7 @@ describe('POST /api/loans/:loanId/liquidate/build', () => {
     const otherWallet = Keypair.random().publicKey();
     const response = await request(app)
       .post('/api/loans/1/liquidate/build')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ liquidatorPublicKey: otherWallet });
 
@@ -857,6 +893,7 @@ describe('POST /api/loans/:loanId/liquidate/build', () => {
 
     const response = await request(app)
       .post('/api/loans/1/liquidate/build')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set(bearer(TEST_BORROWER))
       .send({ liquidatorPublicKey: TEST_BORROWER });
 

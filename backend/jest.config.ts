@@ -22,6 +22,10 @@ const config: Config = {
     // The seed data tables are literals with no branches to exercise; counting them would lower
     // every percentage without saying anything about the code. The guard around them is measured.
     '!src/seed/data/**',
+    // A command-line program that prints the OpenAPI document to stdout. It has no behaviour a
+    // test can meaningfully exercise beyond the empty-document guard, and counting its two
+    // statements would move every percentage while measuring nothing.
+    '!src/config/dumpSwagger.ts',
   ],
   coverageDirectory: 'coverage',
   // `json-summary` is what `scripts/check-coverage-thresholds.mjs` reads; `lcov` and `text` are for

@@ -86,6 +86,7 @@ describe('POST /api/loans/:loanId/build-cancel', () => {
   it('should build cancel transaction', async () => {
     const response = await request(app)
       .post('/api/loans/loan-123/build-cancel')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', borrowerAuth);
 
     expect(response.status).toBe(200);
@@ -95,6 +96,7 @@ describe('POST /api/loans/:loanId/build-cancel', () => {
   it('should reject non-cancellable loans', async () => {
     const response = await request(app)
       .post('/api/loans/completed-loan/build-cancel')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', borrowerAuth);
 
     expect(response.status).toBe(400);
@@ -105,6 +107,7 @@ describe('POST /api/admin/loans/:loanId/build-reject', () => {
   it('should build reject transaction', async () => {
     const response = await request(app)
       .post('/api/admin/loans/loan-123/build-reject')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', adminAuth)
       .send({ reason: 'Insufficient collateral' });
 
@@ -115,6 +118,7 @@ describe('POST /api/admin/loans/:loanId/build-reject', () => {
   it('should fail if reason too short', async () => {
     const response = await request(app)
       .post('/api/admin/loans/loan-1/build-reject')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', adminAuth)
       .send({ reason: 'bad' });
 

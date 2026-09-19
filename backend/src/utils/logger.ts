@@ -1,5 +1,6 @@
 import winston from 'winston';
 import { getRequestId } from './requestContext.js';
+import { REDACTED, isSensitiveField, redactForLogging, redactString } from './redaction.js';
 
 const levels = {
   error: 0,
@@ -63,51 +64,31 @@ const withRequestId = winston.format((info) => {
 });
 
 /**
- * Keys whose values must never be written to logs.
+ * Metadata keys that winston owns and that therefore must not be replaced wholesale.
  *
- * Auth tokens, API keys, wallet secrets, and raw signatures routinely travel
- * through request/response objects; a stray `logger.info('...', req)` would
- * otherwise persist a live credential in plain text to whatever log sink the
- * deployment ships to.
+ * `message` and `stack` are still *scanned* rather than trusted: an exception message built out
+ * of a URL or a header is a common way for a token to reach a log, and the field name gives no
+ * hint of it. They are run through the value pass instead of the name pass, so a clean message is
+ * left exactly as written.
+ *
+ * The list of what counts as a secret lives in `utils/redaction.ts`, shared with the audit trail,
+ * so there is one definition rather than one per writer.
  */
-const SENSITIVE_KEY_PATTERN =
-  /(password|passwd|secret|token|authorization|cookie|api[-_]?key|apikey|private[-_]?key|mnemonic|seed[-_]?phrase|signature|signedtx)/i;
-
-const REDACTED = '[REDACTED]';
-const MAX_REDACT_DEPTH = 6;
 const LOG_META_RESERVED_KEYS = new Set(['level', 'message', 'timestamp', 'stack', 'splat']);
 
-function redactValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
-  if (depth > MAX_REDACT_DEPTH) return '[Truncated]';
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value as object)) return '[Circular]';
-
-  seen.add(value as object);
-
-  if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, depth + 1, seen));
-  }
-
-  if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
-  }
-
-  const result: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redactValue(nested, depth + 1, seen);
-  }
-  return result;
-}
-
-/** Strips credentials from every non-reserved metadata field on a log record. */
+/** Strips credentials from every metadata field on a log record. */
 export const withRedaction = winston.format((info) => {
   for (const key of Object.keys(info)) {
-    if (LOG_META_RESERVED_KEYS.has(key)) continue;
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
-      info[key] = REDACTED;
+    const value = info[key];
+
+    if (LOG_META_RESERVED_KEYS.has(key)) {
+      info[key] = typeof value === 'string' ? redactString(value) : value;
       continue;
     }
-    info[key] = redactValue(info[key], 0, new WeakSet());
+
+    // The name pass applies to the record's own keys; the value pass handles everything
+    // underneath them, including credentials embedded in strings.
+    info[key] = isSensitiveField(key) ? REDACTED : redactForLogging(value);
   }
   return info;
 });
@@ -116,15 +97,20 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const transports: winston.transport[] = [
   new winston.transports.Console({
-    format: isProduction
-      ? winston.format.combine(withRequestId(), withRedaction(), productionFormat)
-      : winston.format.combine(withRequestId(), withRedaction(), devFormat),
+    format: isProduction ? productionFormat : devFormat,
   }),
 ];
 
 const logger = winston.createLogger({
   level: level(),
   levels,
+  // Redaction runs at the logger rather than inside each transport's format chain.
+  //
+  // Winston applies the logger's format and then the transport's, so a rule placed here covers
+  // every transport — including one added later for a new sink. That is the difference between a
+  // guarantee and a habit: when this lived in the console transport's own chain, adding a second
+  // transport (a file, a log shipper) silently wrote credentials to it, and nothing failed.
+  format: winston.format.combine(withRequestId(), withRedaction()),
   transports,
 });
 
