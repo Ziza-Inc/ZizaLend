@@ -44,6 +44,47 @@ export interface VerifyResponse {
   data: VerifyData;
 }
 
+/**
+ * Clock-skew margin applied when deciding whether a token is still usable.
+ *
+ * A token with less than this much life left is treated as expired. The alternative is a
+ * request that leaves just before the token lapses and comes back a 401 the caller had no way
+ * to anticipate, which is the failure this margin exists to avoid.
+ */
+export const TOKEN_EXPIRY_SKEW_MS = 30_000;
+
+/**
+ * Read the `exp` claim out of a JWT and return it as a millisecond timestamp.
+ *
+ * Returns `null` when the token is not a JWT or carries no numeric `exp`. That distinction —
+ * "no expiry we can read" versus "expired" — is what the callers need, so it is not collapsed
+ * into a boolean here.
+ *
+ * Works in a browser and in Node alike: `atob` and `TextDecoder` are global in both, so this
+ * adds no dependency and no Node-only `Buffer` usage to a package the frontend bundles.
+ */
+export function readTokenExpiryMs(token: string): number | null {
+  const segments = token.split('.');
+  if (segments.length !== 3) return null;
+
+  const payload = segments[1];
+  if (!payload) return null;
+
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    // `atob` rejects a length that is not a multiple of four, and JWT payloads are unpadded.
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const claims = JSON.parse(new TextDecoder().decode(bytes)) as { exp?: unknown };
+
+    if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) return null;
+    return claims.exp * 1000;
+  } catch {
+    return null;
+  }
+}
+
 export class Auth {
   constructor(private client: Client) {}
 
@@ -122,9 +163,48 @@ export class Auth {
   }
 
   /**
-   * Convenience method to check if the client is currently authenticated.
+   * Whether a token is currently set.
+   *
+   * This says nothing about whether the token is still valid — a caller asking "could this
+   * token still authorise a request?" wants `isAuthenticated()`.
+   */
+  hasToken(): boolean {
+    return this.client.hasToken();
+  }
+
+  /**
+   * The moment the current token expires, or `null` when there is no token or its `exp` claim
+   * cannot be read locally. Authoritative for nothing: the server decides.
+   */
+  getTokenExpiresAt(): Date | null {
+    const token = this.client.getToken();
+    if (!token) return null;
+
+    const expiresAtMs = readTokenExpiryMs(token);
+    return expiresAtMs === null ? null : new Date(expiresAtMs);
+  }
+
+  /**
+   * Whether the client holds a token that is still usable.
+   *
+   * This used to answer "is a token set?", which is a different question with a visible
+   * consequence: `verify()` reported `valid: false` for an expired token while this method
+   * reported `true` for the same token, so a restored session rendered a signed-in shell whose
+   * every request failed with a 401, and the user was bounced to a login screen only after the
+   * first failure. An expired token now reports `false` here.
+   *
+   * A token whose `exp` cannot be read — not a JWT, or a JWT without an `exp` claim — reports
+   * `true` when one is set. The client cannot prove such a token has expired, and guessing the
+   * other way would sign out callers whose server issues opaque tokens. `verify()` remains the
+   * authoritative answer for those.
    */
   isAuthenticated(): boolean {
-    return this.client.hasToken();
+    const token = this.client.getToken();
+    if (!token) return false;
+
+    const expiresAtMs = readTokenExpiryMs(token);
+    if (expiresAtMs === null) return true;
+
+    return expiresAtMs - TOKEN_EXPIRY_SKEW_MS > Date.now();
   }
 }
