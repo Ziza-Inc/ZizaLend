@@ -6,28 +6,28 @@ The `services/` layer contains the core business logic of the ZizaLend backend. 
 
 ### Services Index
 
-| Service                        | Responsibility                                                              | Key Entry Points                                                                                      |
-| ------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **authService**                | JWT generation/verification, signature validation, challenge flow           | `generateChallenge()`, `verifySignature()`, `generateJwtToken()`, `verifyJwtToken()`, `revokeToken()` |
+| Service                        | Responsibility                                                                       | Key Entry Points                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| **authService**                | JWT generation/verification, signature validation, challenge flow                    | `generateChallenge()`, `verifySignature()`, `generateJwtToken()`, `verifyJwtToken()`, `revokeToken()` |
 | **cacheService**               | Key-value cache facade over Redis, or the in-process store when `REDIS_URL` is unset | `get()`, `set()`, `delete()`, `setNotExists()`                                                        |
-| **databaseService**            | User profiles, loan history, indexed events CRUD                            | `UserProfileService.*`, `LoanHistoryService.*`, `IndexedEventsService.*`                              |
-| **eventIndexer**               | Polls Stellar RPC for contract events, stores in PostgreSQL                 | `startIndexing()`, `stopIndexing()` (via IndexerManager)                                              |
-| **indexerManager**             | Lifecycle management for the event indexer                                  | `start()`, `stop()`                                                                                   |
-| **eventStreamService**         | SSE stream of loan events for frontend real-time updates                    | `getEventStream()`                                                                                    |
-| **defaultChecker**             | Background scheduler that calls on-chain `check_defaults` for overdue loans | Runs automatically on interval                                                                        |
-| **scoresService**              | Bulk credit score updates and reconciliation                                | `updateUserScoresBulk()`, `setAbsoluteUserScoresBulk()`                                               |
-| **scoreReconciliationService** | Compares DB scores vs on-chain, auto-corrects divergence                    | Runs automatically on interval                                                                        |
-| **scoreDecayService**          | Score decay logic (not currently scheduled)                                 | `applyDecay()`                                                                                        |
-| **sorobanService**             | Stellar/Soroban contract interaction (read/write)                           | `getContract()`, `submitTransaction()`                                                                |
-| **webhookService**             | Deliver webhooks to registered URLs with signature                          | `deliverWebhook()`, `retryFailedWebhook()`                                                            |
-| **webhookRetryScheduler**      | Background scheduler for exponential backoff webhook retries                | Runs automatically every 60s                                                                          |
-| **webhookRetryProcessor**      | Alternative webhook retry implementation (not currently used)               | —                                                                                                     |
-| **notificationService**        | In-app notifications, digests, cleanup                                      | `createNotification()`, `sendDigest()`, cleanup runs every 24h                                        |
-| **remittanceService**          | Remittance NFT operations and queries                                       | `createRemittance()`, `getRemittancesByUser()`                                                        |
-| **rateLimitService**           | Track and enforce rate limits by key                                        | `checkRateLimit()`, `incrementCounter()`                                                              |
-| **auditLogService**            | Record audit trail for sensitive operations                                 | `logAction()`                                                                                         |
-| **jobMetricsService**          | Track success/failure metrics for background jobs                           | `recordJobRun()`, `getJobMetrics()`                                                                   |
-| **yieldHistoryService**        | Query and aggregate yield data for lenders                                  | `getYieldHistory()`, `calculateAPY()`                                                                 |
+| **databaseService**            | User profiles, loan history, indexed events CRUD                                     | `UserProfileService.*`, `LoanHistoryService.*`, `IndexedEventsService.*`                              |
+| **eventIndexer**               | Polls Stellar RPC for contract events, stores in PostgreSQL                          | `startIndexing()`, `stopIndexing()` (via IndexerManager)                                              |
+| **indexerManager**             | Lifecycle management for the event indexer                                           | `start()`, `stop()`                                                                                   |
+| **eventStreamService**         | SSE stream of loan events for frontend real-time updates                             | `getEventStream()`                                                                                    |
+| **defaultChecker**             | Background scheduler that calls on-chain `check_defaults` for overdue loans          | Runs automatically on interval                                                                        |
+| **scoresService**              | Bulk credit score updates and reconciliation                                         | `updateUserScoresBulk()`, `setAbsoluteUserScoresBulk()`                                               |
+| **scoreReconciliationService** | Compares DB scores vs on-chain, auto-corrects divergence                             | Runs automatically on interval                                                                        |
+| **scoreDecayService**          | Score decay logic (not currently scheduled)                                          | `applyDecay()`                                                                                        |
+| **sorobanService**             | Stellar/Soroban contract interaction (read/write)                                    | `getContract()`, `submitTransaction()`                                                                |
+| **webhookService**             | Deliver webhooks to registered URLs with signature                                   | `deliverWebhook()`, `retryFailedWebhook()`                                                            |
+| **webhookRetryScheduler**      | Background scheduler for exponential backoff webhook retries                         | Runs automatically every 60s                                                                          |
+| **webhookRetryProcessor**      | Alternative webhook retry implementation (not currently used)                        | —                                                                                                     |
+| **notificationService**        | In-app notifications, digests, cleanup                                               | `createNotification()`, `sendDigest()`, cleanup runs every 24h                                        |
+| **remittanceService**          | Remittance NFT operations and queries                                                | `createRemittance()`, `getRemittancesByUser()`                                                        |
+| **rateLimitService**           | Track and enforce rate limits by key                                                 | `checkRateLimit()`, `incrementCounter()`                                                              |
+| **auditLogService**            | Record audit trail for sensitive operations                                          | `logAction()`                                                                                         |
+| **jobMetricsService**          | Track success/failure metrics for background jobs                                    | `recordJobRun()`, `getJobMetrics()`                                                                   |
+| **yieldHistoryService**        | Query and aggregate yield data for lenders                                           | `getYieldHistory()`, `calculateAPY()`                                                                 |
 
 ### Background Schedulers
 
