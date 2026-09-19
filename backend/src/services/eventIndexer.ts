@@ -15,7 +15,14 @@ import { updateUserScoresBulk } from './scoresService.js';
 import { AppError } from '../errors/AppError.js';
 import { recordIndexerLedgers } from '../middleware/metrics.js';
 
-const EVENT_TYPE_ALIASES: Record<string, WebhookEventType> = {
+/**
+ * Short contract symbols mapped to the canonical event type this indexer stores.
+ *
+ * Exported so the SDK parity test can hold `packages/sdk`'s copy of this table to the same
+ * keys and the same targets: a new alias added here without the SDK learning about it is
+ * exactly the drift that test exists to catch.
+ */
+export const EVENT_TYPE_ALIASES: Record<string, WebhookEventType> = {
   Mint: 'NFTMinted',
   AdmRemint: 'NFTMinted',
   ScoreUpd: 'ScoreUpdated',
