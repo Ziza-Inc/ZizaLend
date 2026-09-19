@@ -38,10 +38,18 @@ interface ClientConfig {
   token?: string;
   /** API key for server-to-server admin endpoints */
   apiKey?: string;
-  /** Request timeout in milliseconds (default: 60000) */
+  /** Request timeout in milliseconds, applied to each attempt (default: 60000) */
   timeoutMs?: number;
   /** Maximum retries for transient errors (default: 3) */
   maxRetries?: number;
+  /**
+   * Wall-clock budget in milliseconds for one logical request, covering every attempt and
+   * every backoff wait between them. Without it, the worst case is
+   * `timeoutMs * (maxRetries + 1)` plus backoff. See "Bounding total latency".
+   */
+  totalTimeoutMs?: number;
+  /** Upper bound in milliseconds on any single backoff wait (default: 30000) */
+  maxRetryDelayMs?: number;
 }
 ```
 
@@ -61,15 +69,32 @@ interface ClientConfig {
 // Challenge-response login with Stellar wallet
 const { token } = await api.auth.authenticate(publicKey, signTransaction);
 
-// Verify session
-const session = await api.auth.verifySession();
-
-// Refresh token (extends 24h window)
-const { token: newToken } = await api.auth.refreshToken();
+// Verify session (asks the server, so this is the authoritative answer)
+const session = await api.auth.verify();
 
 // Logout (adds JWT to server-side revocation list)
 await api.auth.logout();
 ```
+
+#### Session validity
+
+`isAuthenticated()` answers whether the token the client holds is still *usable*, not merely
+whether one is set. It reads the token's `exp` claim and treats a token within a 30-second
+skew margin of expiry as expired, so a restored session whose token has lapsed does not render
+a signed-in surface that fails every request with a 401.
+
+```ts
+api.auth.hasToken();          // is a token set at all?
+api.auth.isAuthenticated();   // is it still usable?
+api.auth.getTokenExpiresAt(); // when does it lapse, or null if that cannot be read
+```
+
+A token whose expiry cannot be read locally — not a JWT, or no `exp` claim — reports `true`
+from `isAuthenticated()` when one is set: the client cannot prove it expired, and guessing the
+other way would sign out callers whose server issues opaque tokens. For those, and whenever the
+answer has to be certain, use `await api.auth.verify()`.
+
+`readTokenExpiryMs(token)` is exported for code that needs the raw claim.
 
 ### Loans
 
@@ -361,7 +386,7 @@ await api.user.updateProfile({
 ## Error Handling
 
 ```ts
-import { ApiError } from "@zizalend/sdk";
+import { ApiError, RequestDeadlineExceededError } from "@zizalend/sdk";
 
 try {
   const loans = await api.loans.list();
@@ -372,18 +397,63 @@ try {
     if (error.isAuthError) {
       // Redirect to login
     } else if (error.isRateLimited) {
-      // Wait and retry with exponential backoff
+      // Retries were already attempted before this surfaced
     } else if (error.isValidationError) {
       // Show field-level errors
       console.error("Invalid field:", error.field);
     }
+  } else if (error instanceof RequestDeadlineExceededError) {
+    // The client stopped the request, the network did not fail. See "Bounding total latency".
+    console.error(`Gave up after ${error.elapsedMs}ms of a ${error.totalTimeoutMs}ms budget`);
   }
 }
 ```
 
-### Retry Behavior
+### Retry behavior
 
-The client automatically retries on transient failures (HTTP 429, 502, 503, 504) and network errors, with exponential backoff. Configure via `maxRetries` (default: 3).
+The client automatically retries on transient failures (HTTP 429, 502, 503, 504) and network
+errors. Configure via `maxRetries` (default: 3).
+
+**`Retry-After` is honoured.** A 429 or 503 that carries the header is waited out for the
+interval it states, in either form RFC 9110 allows: delta-seconds (`Retry-After: 60`) or an
+HTTP-date (`Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`). The old behaviour of always sleeping
+`2^attempt * 200ms` meant three retries fired inside a one-minute rate-limit window and the
+caller got a rate-limit error that waiting would have avoided. When the header is absent or
+unparseable the client falls back to exponential backoff from 200ms.
+
+**Every wait is capped.** `maxRetryDelayMs` (default `30000`) bounds both an honoured
+`Retry-After` and the exponential fallback, so a server asking for an hour cannot pin a client
+for an hour.
+
+**Every wait is jittered.** A delay derived from `Retry-After` is a floor, so the jitter is
+additive (up to 250ms): subtracting from it would send every client back before the window
+reopened. The exponential fallback uses equal jitter — half the window fixed, half random — so
+a fleet that hit the same limiter at the same moment does not return in lockstep.
+
+### Bounding total latency
+
+`timeoutMs` applies to each attempt, and `maxRetries` multiplies it: with the defaults, one
+logical request can occupy 120 seconds plus backoff. `totalTimeoutMs` bounds the whole
+operation instead.
+
+```ts
+const api = new Zizalend({
+  baseUrl: "http://localhost:3001/api/v1",
+  timeoutMs: 30000,
+  totalTimeoutMs: 5000, // give up after five seconds, retries and backoff included
+});
+```
+
+A per-attempt timeout is never allowed to outlive the shared budget: with 30-second attempts
+and a 5-second budget, the first attempt is aborted at five seconds. The client also stops
+retrying as soon as the remaining budget cannot fit another attempt plus its backoff, rather
+than sleeping past a deadline that has already decided the outcome.
+
+When the budget runs out the client throws `RequestDeadlineExceededError`, carrying
+`totalTimeoutMs` and `elapsedMs`. It is deliberately not an `ApiError` and deliberately not the
+last transport error: nothing was refused by the server and nothing necessarily failed on the
+network — the client chose to stop, and reporting the underlying `ECONNRESET` would attribute
+that decision to the network.
 
 ## Event Streaming
 
