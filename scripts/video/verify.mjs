@@ -39,6 +39,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
 const README = join(REPO, "README.md");
 
+/**
+ * Where the pitch is published. The README is the front door for judges and reviewers, so
+ * this link is the one that has to be right; the committed MP4 is the offline mirror.
+ */
+const YOUTUBE_URL = "https://youtu.be/2ZST7YiZ1Uk";
+const YOUTUBE_VIDEO_ID = "2ZST7YiZ1Uk";
+
 /** Results are collected rather than thrown on the first failure, so one run lists all of them. */
 class Report {
   constructor() {
@@ -505,12 +512,42 @@ async function documentationFacts(report) {
     const readme = await readFile(README, "utf8");
     const videoRef = "docs/media/zizalend-pitch.mp4";
     const thumbRef = "docs/media/zizalend-pitch-thumbnail.png";
-    if (!readme.includes(videoRef)) throw new Error(`README does not reference ${videoRef}`);
+
+    // The published link is the primary presentation, so the README must point at it in
+    // more than one place: the badge row and the Pitch Video section.
+    const publishRefs = readme.split(YOUTUBE_URL).length - 1;
+    if (publishRefs < 2) {
+      throw new Error(
+        `README references ${YOUTUBE_URL} ${publishRefs} time(s); expected the badge and the section`,
+      );
+    }
     if (!readme.includes(thumbRef)) throw new Error(`README does not reference ${thumbRef}`);
+    if (!readme.includes(videoRef)) throw new Error(`README does not reference the MP4 mirror`);
     if (!(await exists(join(REPO, videoRef)))) throw new Error(`${videoRef} is referenced but missing`);
     if (!(await exists(join(REPO, thumbRef)))) throw new Error(`${thumbRef} is referenced but missing`);
-    return "README links the video and its thumbnail, and both exist";
+    return `README links ${YOUTUBE_VIDEO_ID} from the badge and the section, and the thumbnail plus MP4 mirror exist`;
   });
+
+  // A README pointing at a dead link is worse than one with no link, so the published URL is
+  // resolved rather than assumed. Being offline says nothing about whether the link is
+  // correct, so an unreachable network skips this check instead of failing it.
+  const oembedUrl = `https://www.youtube.com/oembed?url=https%3A%2F%2Fyoutu.be%2F${YOUTUBE_VIDEO_ID}&format=json`;
+  let reachedNetwork = false;
+  try {
+    const response = await fetch(oembedUrl, { signal: AbortSignal.timeout(10_000) });
+    reachedNetwork = true;
+    if (!response.ok) {
+      throw new Error(`YouTube answered HTTP ${response.status} for video ${YOUTUBE_VIDEO_ID}`);
+    }
+    const meta = await response.json();
+    if (!meta?.title) {
+      throw new Error(`YouTube returned no title for video ${YOUTUBE_VIDEO_ID}`);
+    }
+    report.pass("published link resolves", `YouTube reports \u201c${meta.title}\u201d`);
+  } catch (error) {
+    if (reachedNetwork) report.fail("published link resolves", error.message.split("\n")[0]);
+    else report.skip("published link resolves", "network unavailable; link not checked");
+  }
 }
 
 /* ───────────────────────────── sequence ───────────────────────────── */

@@ -23,7 +23,7 @@
   <img src="https://img.shields.io/badge/backend_tests-530_passing-2EA043?style=flat-square&logo=jest" alt="530 backend tests passing" />
   <img src="https://img.shields.io/badge/smoke_test-8%2F8_on_Testnet-2EA043?style=flat-square&logo=stellar" alt="End-to-end smoke test passing on Testnet" />
   <a href="docs/contracts-ACCESS-CONTROL.md"><img src="https://img.shields.io/badge/governance-3--of--N_multisig-7C3AED?style=flat-square" alt="Multisig governance" /></a>
-  <a href="docs/media/zizalend-pitch.mp4"><img src="https://img.shields.io/badge/pitch_video-4_minutes-7C3AED?style=flat-square&logo=ffmpeg&labelColor=0D0D12" alt="Watch the pitch video" /></a>
+  <a href="https://youtu.be/2ZST7YiZ1Uk"><img src="https://img.shields.io/badge/pitch_video-watch_on_YouTube-FF0000?style=flat-square&logo=youtube&labelColor=0D0D12" alt="Watch the four-minute pitch video on YouTube" /></a>
 
   <!-- Tech Stack (versions verified against package.json / Cargo.toml / CI) -->
   <br/>
@@ -119,15 +119,20 @@ is a set of addresses, not a working system.
 
 ## 🎬 Pitch Video
 
-<a href="docs/media/zizalend-pitch.mp4">
-  <img src="docs/media/zizalend-pitch-thumbnail.png" alt="ZizaLend — every transfer builds your future. Click to watch the four-minute pitch." width="100%" />
+<a href="https://youtu.be/2ZST7YiZ1Uk">
+  <img src="docs/media/zizalend-pitch-thumbnail.png" alt="ZizaLend — every transfer builds your future. Click to watch the four-minute pitch on YouTube." width="100%" />
 </a>
 
-### ▶️ [**Watch the four-minute pitch**](docs/media/zizalend-pitch.mp4)
+### ▶️ [**Watch the four-minute pitch on YouTube**](https://youtu.be/2ZST7YiZ1Uk)
 
 Four minutes covering the problem, the protocol, the four deployed contracts, the live
 application, the measured performance, and what makes this infrastructure rather than a
 finished demo.
+
+Published as *The ZizaLend Advantage: Portable Credit for All*. The same cut is committed at
+[`docs/media/zizalend-pitch.mp4`](docs/media/zizalend-pitch.mp4) (1920×1080, 4:34, ~25 MB) for
+anyone who wants the file rather than the stream. It is generated, not hand-edited, so
+re-running the pipeline below is what keeps it honest.
 
 The video is **built from the repository, not written about it**. `scripts/video/build.mjs`
 captures its footage from the deployed application and from GitHub, narrates the script in
@@ -615,7 +620,7 @@ ZizaLend/
 | Fuzz Targets | 5 property-based targets across all 4 contracts |
 | Error Codes | 113 typed codes, generated and checked in CI |
 | CI Workflows | 7 workflows, 13 required status checks on `main` |
-| Pitch Video | 4 minutes, built and self-verified by `scripts/video/build.mjs` |
+| Pitch Video | 4 minutes on [YouTube](https://youtu.be/2ZST7YiZ1Uk), built and self-verified by `scripts/video/build.mjs` |
 | Supported Locales | English, Spanish, Tagalog |
 
 ---
