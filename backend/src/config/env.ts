@@ -18,6 +18,15 @@ const REQUIRED_ENV_VARS = [
   'LOAN_MANAGER_ADMIN_SECRET',
   'INTERNAL_API_KEY',
   'FRONTEND_URL',
+  // Loan policy. These have no code-side defaults: `validateLoanConfig()` runs
+  // before the listener starts and aborts the process when one is missing or out
+  // of range, so they belong in the fail-fast list rather than surfacing later as
+  // a startup error from a different module. The numeric ranges are enforced
+  // there, not here — this list is about presence.
+  'LOAN_MIN_SCORE',
+  'LOAN_MAX_AMOUNT',
+  'LOAN_INTEREST_RATE_PERCENT',
+  'CREDIT_SCORE_THRESHOLD',
   'SCORE_DELTA_REPAY',
   'SCORE_DELTA_DEFAULT',
   'SCORE_DELTA_LATE',

@@ -32,13 +32,13 @@ This document lists every environment variable used by the ZizaLend platform. Ea
 | `STELLAR_PHP_ISSUER` | — | ✓ | ✓ | — | PHP asset issuer address | `backend/src/config/stellar.ts` |
 | `LOAN_MANAGER_ADMIN_SECRET` | ✓ | ✓ | ✓ | — | Admin secret key for loan manager operations | `backend/src/config/stellar.ts` |
 | `SCORE_RECONCILIATION_SOURCE_SECRET` | — | ✓ | ✓ | — | Secret key for score reconciliation operations | `backend/src/services/scoreService.ts` |
-| `LOAN_MIN_SCORE` | ✓ | ✓ | ✓ | `500` | Minimum credit score to request a loan | `backend/src/config/loans.ts` |
-| `LOAN_MAX_AMOUNT` | ✓ | ✓ | ✓ | `50000` | Maximum loan amount in USD | `backend/src/config/loans.ts` |
-| `LOAN_INTEREST_RATE_PERCENT` | ✓ | ✓ | ✓ | `12` | Annual interest rate percentage | `backend/src/config/loans.ts` |
-| `CREDIT_SCORE_THRESHOLD` | ✓ | ✓ | ✓ | `600` | Threshold for loan approval score | `backend/src/config/loans.ts` |
-| `SCORE_DELTA_REPAY` | ✓ | ✓ | ✓ | `15` | Points added to score on timely repayment | `backend/src/config/scores.ts` |
-| `SCORE_DELTA_DEFAULT` | ✓ | ✓ | ✓ | `50` | Points deducted on default | `backend/src/config/scores.ts` |
-| `SCORE_DELTA_LATE` | ✓ | ✓ | ✓ | `5` | Points deducted on late payment | `backend/src/config/scores.ts` |
+| `LOAN_MIN_SCORE` | ✓ | ✓ | ✓ | — | Minimum credit score to request a loan. **Required, no default** — startup fails without it and outside 300–850. | `backend/src/config/loanConfig.ts` |
+| `LOAN_MAX_AMOUNT` | ✓ | ✓ | ✓ | — | Maximum loan amount in USD. **Required, no default** — range 1–1000000. | `backend/src/config/loanConfig.ts` |
+| `LOAN_INTEREST_RATE_PERCENT` | ✓ | ✓ | ✓ | — | Annual interest rate percentage. **Required, no default** — range 1–100. | `backend/src/config/loanConfig.ts` |
+| `CREDIT_SCORE_THRESHOLD` | ✓ | ✓ | ✓ | — | Threshold for loan approval score. **Required, no default** — range 300–850. | `backend/src/config/loanConfig.ts` |
+| `SCORE_DELTA_REPAY` | ✓ | ✓ | ✓ | `15` | Magnitude of the score increase on timely repayment. Must be a positive integer. | `backend/src/services/sorobanService.ts` |
+| `SCORE_DELTA_DEFAULT` | ✓ | ✓ | ✓ | `50` | Magnitude of the score penalty on default. Must be a positive integer. | `backend/src/services/sorobanService.ts` |
+| `SCORE_DELTA_LATE` | ✓ | ✓ | ✓ | `5` | Magnitude of the score penalty on late payment. Must be a positive integer. | `backend/src/services/sorobanService.ts` |
 | `INDEXER_POLL_INTERVAL_MS` | ✓ | ✓ | ✓ | `30000` | Event indexer poll interval in milliseconds | `backend/src/config/indexer.ts` |
 | `INDEXER_BATCH_SIZE` | ✓ | ✓ | ✓ | `100` | Events fetched per poll cycle | `backend/src/config/indexer.ts` |
 | `INDEXER_HEALTH_LAG_LIMIT` | ✓ | ✓ | ✓ | `100` | Maximum ledger lag before `/health/deep` reports the indexer as degraded | `backend/src/services/healthService.ts` |

@@ -15,6 +15,12 @@ const REQUIRED: Record<string, string> = {
   LOAN_MANAGER_ADMIN_SECRET: 'S1',
   INTERNAL_API_KEY: 'K1',
   FRONTEND_URL: 'http://localhost:3000',
+  // Loan policy has no code-side defaults: validateLoanConfig() aborts startup
+  // without them, so they are part of the required set.
+  LOAN_MIN_SCORE: '500',
+  LOAN_MAX_AMOUNT: '50000',
+  LOAN_INTEREST_RATE_PERCENT: '12',
+  CREDIT_SCORE_THRESHOLD: '600',
   SCORE_DELTA_REPAY: '15',
   SCORE_DELTA_DEFAULT: '50',
   SCORE_DELTA_LATE: '5',
@@ -79,6 +85,14 @@ describe('Environment Variable Validation', () => {
   it('should exit with code 1 if a required variable is empty string', () => {
     setRequired();
     process.env.DATABASE_URL = '   ';
+
+    expect(() => validateEnvVars()).toThrow('Process.exit called with 1');
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it('should require the loan policy variables', () => {
+    setRequired();
+    delete process.env.LOAN_MIN_SCORE;
 
     expect(() => validateEnvVars()).toThrow('Process.exit called with 1');
     expect(mockExit).toHaveBeenCalledWith(1);
