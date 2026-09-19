@@ -75,12 +75,7 @@ const REQUIRED_ALLOWED = [
 /**
  * Licences the policy must not permit.
  *
- * Strong copyleft, network copyleft, and non-commercial terms. `FSL-1.1-MIT` is not in this list
- * even though its terms restrict competing use: `@sentry/cli` already carries it, and the check
- * below fails if the allowlist is stricter than the tree in use. It is allowed because it is
- * already a transitive dependency, not because it is a licence this project seeks out — which is
- * why the workflow names it in the allowlist with that reason written down rather than folding
- * it into the permissive block.
+ * Strong copyleft, network copyleft, and non-commercial terms.
  */
 const MUST_BE_REJECTED = [
   "AGPL-3.0-only",
@@ -92,6 +87,31 @@ const MUST_BE_REJECTED = [
   "CC-BY-NC-4.0",
   "OSL-3.0",
 ];
+
+/**
+ * Licences already in the tree that **cannot be written into `allow-licenses` at all**.
+ *
+ * The action validates each entry against its own copy of the SPDX licence list and refuses the
+ * whole job on an unrecognised one:
+ *
+ *     ##[error]Invalid license(s) in allow-licenses: FSL-1.1-MIT
+ *
+ * `FSL-1.1-MIT` is a real licence — the Functional Source License, which `@sentry/cli` and its
+ * platform binaries ship under — but it is not in that list, so it cannot be an allowlist entry
+ * no matter how the entry is spelled. Listing it there fails the job before it reviews anything,
+ * which is worse than not listing it: the review stops running and reports a configuration error
+ * that looks like a dependency problem.
+ *
+ * So it is neither allowed nor denied by the allowlist. It is recorded here instead, with the
+ * dependency that brought it in, so that the decision is written down and so that the checks
+ * below can distinguish "the policy permits this" from "the policy cannot express an opinion and
+ * the dependency is already here".
+ *
+ * The alternative — removing the dependency — means losing source maps in production.
+ */
+const NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY = new Map([
+  ["FSL-1.1-MIT", "@sentry/cli and its per-platform binaries"],
+]);
 
 const errors = [];
 const notes = [];
@@ -246,13 +266,34 @@ if (allowlist === undefined || allowlist.length === 0) {
 
 const allowed = new Set(allowlist ?? []);
 
+// A licence that cannot be expressed as an allowlist entry must not be present in one. The action
+// rejects the entire job on an unrecognised entry — which is exactly what happened when
+// `FSL-1.1-MIT` was listed there — and that failure reads as a dependency problem rather than as
+// a configuration mistake. This turns a repeat of it into a local failure with the reason.
+const inBothLists = [...NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.keys()].filter(
+  (licence) => allowed.has(licence),
+);
+
+if (inBothLists.length > 0) {
+  errors.push(
+    `${inBothLists.join(", ")} is in allow-licenses, but the action rejects it as an invalid ` +
+      `SPDX identifier and fails the whole job before reviewing anything. Record it in ` +
+      `NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY instead, where the reason is written down.`,
+  );
+}
+
 /**
- * Evaluate one SPDX licence expression against the allowlist.
+ * Evaluate one SPDX licence expression against the policy.
  *
  * `OR` is satisfied by either side, `AND` requires both, and `WITH` requires the exception to
  * be named in the allowlist (an exception is a term, not a synonym for the bare licence).
  * Parentheses nest. The legacy `MIT/Apache-2.0` form, which crates still publish, is read as an
  * `OR` — that is what it meant when it was written.
+ *
+ * A licence in `NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY` counts as permitted *for the purpose of
+ * asking whether the policy is stricter than the tree in use*. That is a different question from
+ * whether a new dependency carrying it would be allowed, and the two are kept apart deliberately:
+ * the policy genuinely has no way to allow it, and the dependency is already here regardless.
  */
 function isPermitted(expression) {
   const tokenise = (input) =>
@@ -286,9 +327,15 @@ function isPermitted(expression) {
         index += 1;
         const exception = tokens[index];
         index += 1;
-        return allowed.has(`${token} WITH ${exception}`);
+        const compound = `${token} WITH ${exception}`;
+        return (
+          allowed.has(compound) ||
+          NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.has(compound)
+        );
       }
-      return allowed.has(token);
+      return (
+        allowed.has(token) || NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.has(token)
+      );
     };
 
     const parseAnd = () => {
@@ -445,6 +492,33 @@ if (wrongfullyAllowed.length > 0) {
   );
 }
 
+// An exception that permits something the policy must refuse is a hole in the policy, whichever
+// list it is written in.
+const wrongfullyExcepted = [
+  ...NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.keys(),
+].filter((licence) => MUST_BE_REJECTED.includes(licence));
+
+if (wrongfullyExcepted.length > 0) {
+  errors.push(
+    `${wrongfullyExcepted.join(", ")} is listed as not-expressible, but it is a licence the ` +
+      `policy must refuse. Not being able to write it into allow-licenses is not a reason to ` +
+      `stop refusing it.`,
+  );
+}
+
+// An exception for a licence nothing in the tree uses is a stale allowance. Removing the last
+// dependency under a licence should remove the entry, so the next reader knows it is still live.
+const staleExceptions = [
+  ...NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.keys(),
+].filter((licence) => !observed.has(licence));
+
+for (const licence of staleExceptions) {
+  notes.push(
+    `"${licence}" is recorded as not-expressible, but no lockfile in the tree carries it any ` +
+      `more. Delete the entry, and the dependency that motivated it.`,
+  );
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 
 for (const note of notes) console.warn(`Note: ${note}\n`);
@@ -460,6 +534,8 @@ if (errors.length > 0) {
 const byEcosystem = [...ecosystems].sort().join(", ");
 console.log(
   `Dependency review covers ${lockfiles.length} lockfile(s) across ${ecosystems.size} ` +
-    `ecosystem(s) (${byEcosystem}); allowlist validated against ${observed.size} licence ` +
-    `expression(s) in use and ${MUST_BE_REJECTED.length} that must be refused.`,
+    `ecosystem(s) (${byEcosystem}); ${allowed.size} allowlist entries and ` +
+    `${NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY.size} not-expressible exception, validated ` +
+    `against ${observed.size} licence expression(s) in use and ` +
+    `${MUST_BE_REJECTED.length} that must be refused.`,
 );

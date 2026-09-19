@@ -57,17 +57,34 @@ jobs:
           #   repository. LGPL-3.0-or-later is present because `sharp` ships `libvips` binaries
           #   under it; replacing sharp means removing this entry:
           #     LGPL-3.0-or-later, MPL-2.0
-          #   Source-available, non-compete — `@sentry/cli` and its platform binaries. Accepted
-          #   only because it is already a transitive dependency of the error-reporting SDK, and
-          #   because the alternative is losing source maps in production. It is the one entry
-          #   that is not an open-source licence, and it is here on the record:
-          #     FSL-1.1-MIT
+          #
+          # `FSL-1.1-MIT` is deliberately absent, and this is the one entry where the absence is
+          # a limitation rather than a refusal. `@sentry/cli` and its per-platform binaries ship
+          # under the Functional Source License — source-available, and it restricts competing
+          # use — but the identifier has no place in the SPDX list the action validates against.
+          # Listing it here does not permit the dependency, it stops the review:
+          #
+          #     ##[error]Invalid license(s) in allow-licenses: FSL-1.1-MIT
+          #
+          # The whole job fails on the configuration before it reads a single manifest, which is
+          # worse than either allowing or refusing it. It is recorded instead in
+          # `NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY` in
+          # scripts/check-dependency-review-scope.mjs, beside the dependency that brought it in,
+          # so the decision is written down and the checker can tell "the policy permits this"
+          # apart from "the policy has no way to say anything about this".
+          #
+          # The consequence a reviewer should know: the review will refuse `FSL-1.1-MIT` on any
+          # future addition or update of a Sentry package, because there is no way to allow it
+          # through this file. Removing the Sentry SDK is the only way to close that, and it costs
+          # source maps in production.
           #
           # `scripts/check-dependency-review-scope.mjs` validates the list in both directions: it
-          # must permit every licence already recorded in the lockfiles and the cargo registry,
-          # and it must still refuse AGPL, GPL, SSPL, BUSL and the non-commercial Creative
-          # Commons variants.
+          # must permit every licence already recorded in the lockfiles and the cargo registry, so
+          # the policy is never stricter than the tree in use; it must still refuse AGPL, GPL,
+          # SSPL, BUSL and the non-commercial Creative Commons variants; and it fails if any entry
+          # here is one the action would itself reject, so a repeat of the failure above is caught
+          # locally instead of in CI.
           allow-licenses: |
             0BSD, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause,
-            BlueOak-1.0.0, CC-BY-4.0, CC0-1.0, FSL-1.1-MIT, ISC, LGPL-3.0-or-later, MIT, MIT-0,
+            BlueOak-1.0.0, CC-BY-4.0, CC0-1.0, ISC, LGPL-3.0-or-later, MIT, MIT-0,
             MPL-2.0, NCSA, Python-2.0, Unicode-3.0, Unlicense, Zlib
