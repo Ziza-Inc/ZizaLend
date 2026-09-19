@@ -2,6 +2,25 @@
 
 When the event indexer falls behind, crashes, or encounters an RPC outage, use this runbook to restore normal operation.
 
+**Symptom:** blocks are not being indexed, `/api/indexer/status` shows a ledger
+gap, quarantined events are piling up, or the Soroban RPC is unreachable.
+
+## Preconditions
+
+| Requirement | Notes |
+| --- | --- |
+| Backend reachable over HTTP | Every command below is an HTTP call; there is no CLI equivalent |
+| Read access to the application database | Needed for the direct lag queries in section 1 |
+| The staging or production base URL you are operating on | Used as the implicit host in each `curl` below |
+
+**Elevated privileges:** yes. Sections 2 to 4 authenticate with
+`INTERNAL_API_KEY` and require the key's `admin:indexer` scope. The read-only
+diagnosis in section 1 needs no key.
+
+**Expected outcome:** the indexer reports `status: "running"` with a gap below
+`INDEXER_POLL_INTERVAL_MS × 2`, the quarantine table stops growing, and
+transactions already on chain are reflected in `contract_events`.
+
 ---
 
 ## 1. Detecting Indexer Lag

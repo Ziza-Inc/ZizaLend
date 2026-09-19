@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./[locale]/globals.css";
 import { QueryProvider } from "./components/providers/QueryProvider";
+import { MotionProvider } from "./components/providers/MotionProvider";
 import { WalletProvider } from "./components/providers/WalletProvider";
 import { DashboardShell } from "./components/global_ui/DashboardShell";
 import { Toaster } from "./components/ui/Toaster";
@@ -51,22 +52,24 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
-        <NextIntlClientProvider locale={locale} messages={messages}>
-          <QueryProvider>
-            <WalletProvider>
-              <NetworkBanner />
-              <DashboardShell>
-                <ErrorBoundary scope="active page" variant="section">
-                  {children}
-                </ErrorBoundary>
-              </DashboardShell>
-              <WalletConnectionModal />
-            </WalletProvider>
-            <Toaster />
-            <LevelUpModal />
-            <GlobalXPGain />
-          </QueryProvider>
-        </NextIntlClientProvider>
+        <MotionProvider>
+          <NextIntlClientProvider locale={locale} messages={messages}>
+            <QueryProvider>
+              <WalletProvider>
+                <NetworkBanner />
+                <DashboardShell>
+                  <ErrorBoundary scope="active page" variant="section">
+                    {children}
+                  </ErrorBoundary>
+                </DashboardShell>
+                <WalletConnectionModal />
+              </WalletProvider>
+              <Toaster />
+              <LevelUpModal />
+              <GlobalXPGain />
+            </QueryProvider>
+          </NextIntlClientProvider>
+        </MotionProvider>
       </body>
     </html>
   );

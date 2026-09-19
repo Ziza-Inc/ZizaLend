@@ -2,6 +2,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 import withSerwistInit from "@serwist/next";
+import bundleAnalyzer from "@next/bundle-analyzer";
 
 const withNextIntl = createNextIntlPlugin("./i18n.config.ts");
 
@@ -16,8 +17,13 @@ const nextConfig: NextConfig = {
 
 const config = withSerwist(nextConfig);
 
+// The analyser is what makes a bundle-budget failure actionable: it writes the
+// treemap that answers "which dependency is this route paying for?". It stays
+// off during normal builds (and in CI) because it adds a build pass.
+const withBundleAnalyzer = bundleAnalyzer({ enabled: process.env.ANALYZE === "true" });
+
 export default withNextIntl(
-  withSentryConfig(config, {
+  withSentryConfig(withBundleAnalyzer(config), {
     silent: !process.env.CI,
     authToken: process.env.SENTRY_AUTH_TOKEN,
     org: process.env.SENTRY_ORG,

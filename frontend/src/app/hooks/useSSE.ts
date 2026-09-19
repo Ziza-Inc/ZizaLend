@@ -43,20 +43,27 @@ export function useSSE<T = unknown>({
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 3;
 
+  // Callbacks are kept in refs so the connection effect does not have to tear
+  // down and reconnect whenever an inline callback changes identity. The refs
+  // are refreshed in an effect rather than assigned during render: writing a ref
+  // while rendering is a side effect on a value React may discard
+  // (`react-hooks/refs`).
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
   const onOpenRef = useRef(onOpen);
-  onOpenRef.current = onOpen;
   const onErrorRef = useRef(onError);
-  onErrorRef.current = onError;
   const onFallbackPollRef = useRef(onFallbackPoll);
-  onFallbackPollRef.current = onFallbackPoll;
 
   useEffect(() => {
-    if (!url) {
-      setStatus("disconnected");
-      return;
-    }
+    onMessageRef.current = onMessage;
+    onOpenRef.current = onOpen;
+    onErrorRef.current = onError;
+    onFallbackPollRef.current = onFallbackPoll;
+  }, [onMessage, onOpen, onError, onFallbackPoll]);
+
+  useEffect(() => {
+    // Nothing to connect: the status returned below reports "disconnected" for a
+    // missing URL, so there is no state to set here.
+    if (!url) return;
 
     let cancelled = false;
 
@@ -180,5 +187,7 @@ export function useSSE<T = unknown>({
     };
   }, [url, token, pollingInterval]);
 
-  return status;
+  // Derived rather than stored: a null URL means disconnected regardless of what
+  // the last connection attempt left behind.
+  return url ? status : "disconnected";
 }

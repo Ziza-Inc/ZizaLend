@@ -75,3 +75,38 @@ Up to one unit of the asset is not attributable to any holder: the virtual posit
 - `PoolPaused / PoolUnpaused`
 - `AdminProposed / AdminTransferred`
 - `ContractUpgraded`
+
+## Errors
+
+Every variant of `PoolError` in [`src/lib.rs`](src/lib.rs), with the condition
+that raises it and whether a caller can usefully try again. Soroban reports these
+on chain as `Error(Contract, #<code>)`, so the number is the stable part and the
+name is the readable one.
+
+The table is kept complete by `scripts/check-contract-error-docs.mjs`, which
+fails CI when the enum and this table disagree in either direction.
+
+| Code | Variant | Raised when | Retryable |
+| ---: | --- | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize` is called on a contract that already has an admin | No |
+| 2 | `NotInitialized` | A function that needs the admin runs before `initialize` | No |
+| 3 | `ContractPaused` | The pool is paused and the operation is not `emergency_withdraw` | Yes, once an admin unpauses |
+| 4 | `InvalidAmount` | `amount` or `shares` is zero or negative | No, without a valid amount |
+| 5 | `PoolSizeExceeded` | A deposit would push `TotalDeposits` past the configured `MaxPoolSize` | Yes, after the cap is raised or other providers withdraw |
+| 6 | `InsufficientBalance` | The provider holds fewer shares than `withdraw` was asked to burn | No |
+| 7 | `InsufficientLiquidity` | The idle balance cannot cover the withdrawal; principal is lent out | Yes, once borrowers repay or providers deposit |
+| 8 | *reserved* | Not raised. It was the withdrawal-cooldown violation code before the cooldown was reworked into `CooldownTooLong` (11). The number is held rather than reused so an error already decoded from a deployed ledger keeps its meaning | — |
+| 9 | `InvalidMaxPoolSize` | `set_max_pool_size` is called with a negative value | No |
+| 10 | `NoProposedAdmin` | `accept_admin` is called with no proposal outstanding | No |
+| 11 | `CooldownTooLong` | `set_withdrawal_cooldown` exceeds the maximum the contract allows | No |
+| 12 | `MinimumHoldTimeNotMet` | Shares have not been held for the minimum number of ledgers (flash-loan guard) | Yes, once the ledger has passed |
+| 13 | `AmountBelowMinimum` | A deposit is below the configured minimum | Yes, with a larger amount |
+| 14 | `LoanManagerNotSet` | A pool operation needs the LoanManager and none is configured | No, and not by the caller — an admin has to set it |
+| 15 | *reserved* | Not raised. It was declared as `UnauthorizedLoanManager`, which nothing could raise: the gate is `loan_manager.require_auth()`, and `require_auth` aborts the host call rather than returning a value, so the variant was unreachable by construction | — |
+| 16 | `TokenNotAllowed` | A deposit names a token the admin has not registered as a market | Yes, once an admin calls `allow_token` |
+| 17 | `OutstandingOverflow` | `adjust_outstanding` would push the outstanding counter past `i128::MAX` | No |
+| 18 | `OutstandingUnderflow` | `adjust_outstanding` would push the outstanding counter below zero | No |
+
+"Retryable" means the same call can succeed later without the caller changing
+anything but timing. A non-retryable code needs a different input, a different
+caller, or an admin action — retrying it unchanged fails identically.

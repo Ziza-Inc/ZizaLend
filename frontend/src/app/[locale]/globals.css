@@ -188,3 +188,33 @@ body {
 .animate-fade-in-up {
   animation: fade-in-up 0.3s ease-out;
 }
+
+/* ── Reduced Motion ────────────────────────────────────────── */
+/*
+ * Honour `prefers-reduced-motion`. Every animation above is decorative: none of
+ * them carries information that is not also present in the text beside it, so
+ * they are collapsed to a single frame rather than removed.
+ *
+ * The duration is set to a hair above zero rather than to `0s` on purpose, so
+ * `animationend` / `transitionend` still fire. Anything that waits on one of
+ * those events to unmount or advance would otherwise never finish — a skeleton
+ * whose shimmer never ends stays on screen forever.
+ *
+ * The shimmer is the one exception: it moves specifically to say "loading", so
+ * it is frozen in place instead of being played once. It still reads as a
+ * placeholder, it just stops moving.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-shimmer {
+    animation: none;
+  }
+}

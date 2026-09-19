@@ -34,6 +34,21 @@ export interface LevelUpReward {
   rewards: string[];
 }
 
+/**
+ * A single XP award waiting to be shown as a "+N XP" chip.
+ *
+ * The queue lives in the store rather than in the animation component's local
+ * state because it is written by non-React code (`addXP`) at arbitrary times.
+ * Mirroring an external value into `useState` from an effect is a synchronous
+ * `setState` inside an effect, and it also cannot represent two awards that
+ * arrive in the same tick — the older one was simply overwritten.
+ */
+export interface XPGain {
+  amount: number;
+  reason: string;
+  id: number;
+}
+
 interface GamificationState {
   // Kingdom progression
   level: number;
@@ -49,13 +64,14 @@ interface GamificationState {
   // UI state
   showLevelUpModal: boolean;
   pendingLevelUp: LevelUpReward | null;
-  recentXPGain: { amount: number; reason: string; id: number } | null;
+  xpGainQueue: XPGain[];
 }
 
 interface GamificationActions {
   // XP and leveling
   addXP: (amount: number, reason?: string) => void;
-  clearRecentXPGain: () => void;
+  /** Drops the gain currently on screen, promoting the next one. */
+  shiftXPGain: () => void;
   setLevel: (level: number) => void;
   checkLevelUp: () => void;
   dismissLevelUp: () => void;
@@ -196,7 +212,7 @@ const initialState: GamificationState = {
   soundVolume: 0.5,
   showLevelUpModal: false,
   pendingLevelUp: null,
-  recentXPGain: null,
+  xpGainQueue: [],
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -208,14 +224,20 @@ export const useGamificationStore = create<GamificationStore>()(
         ...initialState,
 
         addXP: (amount, reason) => {
-          const currentXP = get().xp;
-          const newXP = currentXP + amount;
+          const newXP = get().xp + amount;
+          const gain: XPGain = { amount, reason: reason || "", id: Date.now() };
 
           set(
-            {
+            (state) => ({
               xp: newXP,
-              recentXPGain: { amount, reason: reason || "", id: Date.now() },
-            },
+              // Appended rather than replacing a single `recentXPGain`, so two
+              // awards in quick succession are both shown instead of the first
+              // being dropped. The same-millisecond guard keeps a re-entrant
+              // call from double-queueing one award.
+              xpGainQueue: state.xpGainQueue.some((item) => item.id === gain.id)
+                ? state.xpGainQueue
+                : [...state.xpGainQueue, gain],
+            }),
             false,
             `gamification/addXP:${reason || "unknown"}`,
           );
@@ -224,8 +246,12 @@ export const useGamificationStore = create<GamificationStore>()(
           get().checkLevelUp();
         },
 
-        clearRecentXPGain: () =>
-          set({ recentXPGain: null }, false, "gamification/clearRecentXPGain"),
+        shiftXPGain: () =>
+          set(
+            (state) => ({ xpGainQueue: state.xpGainQueue.slice(1) }),
+            false,
+            "gamification/shiftXPGain",
+          ),
 
         setLevel: (level) => {
           const kingdomTitle = getKingdomTitle(level);

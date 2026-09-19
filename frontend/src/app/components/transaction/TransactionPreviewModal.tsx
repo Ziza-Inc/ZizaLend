@@ -54,17 +54,33 @@ export function TransactionPreviewModal({
   data,
   isLoading = false,
 }: TransactionPreviewModalProps) {
-  const [hasAcknowledged, setHasAcknowledged] = React.useState(false);
-
-  // Reset acknowledgment when modal opens
-  React.useEffect(() => {
-    if (isOpen) {
-      setHasAcknowledged(false);
-    }
-  }, [isOpen]);
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Review Transaction" className="max-w-2xl">
+      {/* Mounted only while the dialog is open, so the acknowledgement below
+          resets by starting fresh rather than by an effect that cleared it —
+          which was a synchronous `setState` inside an effect. */}
+      {isOpen ? (
+        <TransactionPreviewContent
+          onClose={onClose}
+          onConfirm={onConfirm}
+          data={data}
+          isLoading={isLoading}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
+function TransactionPreviewContent({
+  onClose,
+  onConfirm,
+  data,
+  isLoading = false,
+}: Omit<TransactionPreviewModalProps, "isOpen">) {
+  const [hasAcknowledged, setHasAcknowledged] = React.useState(false);
+
+  return (
+    <>
       <div className="space-y-6">
         {/* Network Badge */}
         <div className="flex items-center justify-between">
@@ -232,6 +248,6 @@ export function TransactionPreviewModal({
           </Button>
         </div>
       </div>
-    </Modal>
+    </>
   );
 }

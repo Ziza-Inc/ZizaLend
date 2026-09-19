@@ -162,7 +162,8 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 <type>(<scope>): <description>
 ```
 
-Valid scopes: `frontend`, `backend`, `contracts`, `scripts`, `docs`, `readme`, `e2e`, `sdk`, `infra`, `ci`, `deps`, `release`
+Valid scopes are enforced by [`commitlint.config.js`](../commitlint.config.js), which is the single source of truth:
+`frontend`, `backend`, `contracts`, `scripts`, `docs`, `readme`, `e2e`, `sdk`, `infra`, `ci`, `deps`, `deps-dev`, `release`.
 
 ### Pre-Commit
 
@@ -182,6 +183,7 @@ Before opening a pull request:
 - [ ] Type checking passes (`npm run typecheck`)
 - [ ] Build succeeds (`npm run build` / `cargo build`)
 - [ ] New features have tests
+- [ ] Every required check passes — see [Required Checks](../CONTRIBUTING.md#required-checks) for the full list and the command that reproduces each one locally
 - [ ] Environment variable changes are reflected in `.env.example` and `docs/ENVIRONMENT.md`
 - [ ] Commit messages follow Conventional Commits
 

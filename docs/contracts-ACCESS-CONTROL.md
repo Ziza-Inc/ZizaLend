@@ -32,6 +32,13 @@ decision rather than a side effect of deployment.
 | **LoanManager** | `LendingPool::disburse` and `LendingPool::settle_outstanding` — the only path by which principal leaves the pool | `LendingPool::set_loan_manager` |
 | **Governance** | `set_admin` on `LendingPool`, `LoanManager`, and `RemittanceNFT` | `set_governance` on each contract |
 
+Setting `Governance` does not remove the Admin role's `propose_admin` /
+`accept_admin` path: it stays available as a documented escape hatch if
+[governance becomes unreachable](SECURITY-MODEL.md#admin-escape-hatch).
+The consequence is that the admin key can still rotate the admin without a
+quorum, and is why an unexpected `AdminTransferred` is an incident. See
+[the governance runbook](runbooks/governance-admin-rotation.md).
+
 ### Why the LoanManager role exists
 
 A contract address authorises only *implicitly* — by being the contract

@@ -1,0 +1,29 @@
+{
+  "$comment": "Per-route first-load JavaScript budgets in KB (gzipped), enforced by frontend/scripts/check-bundle-size.mjs. Each value is the measured size plus 10% headroom, so the check fails on a real regression rather than on ordinary churn. Raise a route's budget deliberately, in the same pull request that grows it, and say why in the description.",
+  "defaultBudgetKb": 292.3,
+  "routes": {
+    "/[locale]/lend": 292.3,
+    "/[locale]/loans/[loanId]": 176.9,
+    "/[locale]/wallet": 171,
+    "/[locale]/send-remittance": 169.7,
+    "/[locale]": 166.2,
+    "/[locale]/repay/[loanId]": 165.3,
+    "/[locale]/settings": 165.2,
+    "/[locale]/analytics": 162.8,
+    "/[locale]/ui-demo": 162.7,
+    "/[locale]/request-loan": 161.3,
+    "/[locale]/activity": 160.9,
+    "/[locale]/remittances": 160.8,
+    "/[locale]/kingdom": 160.2,
+    "/[locale]/notifications": 159.8,
+    "/[locale]/loans": 159.7,
+    "/[locale]/admin/disputes/[id]": 159.5,
+    "/[locale]/admin/disputes": 158.2,
+    "/[locale]/liquidations": 158.1,
+    "/[locale]/admin/governance": 155.5,
+    "/_not-found": 151.6,
+    "/_global-error": 20,
+    "/robots.txt/route": 0,
+    "/sitemap.xml/route": 0
+  }
+}

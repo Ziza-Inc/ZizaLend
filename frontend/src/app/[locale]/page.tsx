@@ -31,28 +31,42 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { CreditScoreBreakdown } from "../components/ui/CreditScoreBreakdown";
 import { ErrorBoundary } from "../components/global_ui/ErrorBoundary";
 import { Tooltip } from "../components/ui/Tooltip";
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useSyncExternalStore } from "react";
 import type { Loan } from "../hooks/useApi";
+import { useNow } from "../hooks/useNow";
+import { readSessionFlag, subscribeToSessionFlag, writeSessionFlag } from "../lib/sessionFlag";
 
 const SEVENTY_TWO_HOURS_MS = 72 * 60 * 60 * 1000;
 const SESSION_BANNER_KEY = "repayment_banner_dismissed";
+
+const subscribeToBannerDismissal = (listener: () => void) =>
+  subscribeToSessionFlag(SESSION_BANNER_KEY, listener);
+const getBannerDismissedSnapshot = () => readSessionFlag(SESSION_BANNER_KEY);
+// Assumed not dismissed on the server, matching the previous `useState(false)`
+// default so the first paint is unchanged.
+const getServerBannerDismissedSnapshot = () => false;
 
 function getLoanDueDate(loan: Loan): Date {
   return new Date(new Date(loan.createdAt).getTime() + loan.termDays * 24 * 60 * 60 * 1000);
 }
 
 function useRepaymentReminder(loans: Loan[] | undefined) {
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem(SESSION_BANNER_KEY) === "true") {
-      setDismissed(true);
-    }
-  }, []);
+  // Both the dismissal flag and the clock are read as external state rather
+  // than mirrored into `useState` from an effect. Mirroring either one is a
+  // synchronous `setState` inside an effect, and it renders a first frame with
+  // the flag and the time both effectively unknown.
+  const dismissed = useSyncExternalStore(
+    subscribeToBannerDismissal,
+    getBannerDismissedSnapshot,
+    getServerBannerDismissedSnapshot,
+  );
+  const now = useNow();
 
   const urgentLoans = useMemo(() => {
-    if (!loans) return [];
-    const now = Date.now();
+    // `useNow` reports 0 until the client has hydrated. Treat that as "unknown"
+    // instead of as the epoch, so nothing is marked urgent before hydration and
+    // the server output carries no time-dependent decision.
+    if (!loans || now === 0) return [];
     return loans
       .filter((l) => {
         if (l.status !== "active") return false;
@@ -60,21 +74,20 @@ function useRepaymentReminder(loans: Loan[] | undefined) {
         return due > now && due - now <= SEVENTY_TWO_HOURS_MS;
       })
       .sort((a, b) => getLoanDueDate(a).getTime() - getLoanDueDate(b).getTime());
-  }, [loans]);
+  }, [loans, now]);
 
-  const dismiss = () => {
-    sessionStorage.setItem(SESSION_BANNER_KEY, "true");
-    setDismissed(true);
-  };
+  const dismiss = () => writeSessionFlag(SESSION_BANNER_KEY, true);
 
-  return { urgentLoans, dismissed, dismiss };
+  return { urgentLoans, dismissed, dismiss, now };
 }
 
 function RepaymentReminderBanner({
   urgentLoans,
+  now,
   onDismiss,
 }: {
   urgentLoans: Loan[];
+  now: number;
   onDismiss: () => void;
 }) {
   const router = useRouter();
@@ -83,7 +96,9 @@ function RepaymentReminderBanner({
   if (!mostUrgent) return null;
 
   const dueDate = getLoanDueDate(mostUrgent);
-  const hoursLeft = Math.max(0, Math.floor((dueDate.getTime() - Date.now()) / (60 * 60 * 1000)));
+  // `now` comes from `useNow` so this stays a pure render; calling `Date.now()`
+  // here would be an impure read on every render.
+  const hoursLeft = Math.max(0, Math.floor((dueDate.getTime() - now) / (60 * 60 * 1000)));
 
   return (
     <div
@@ -160,7 +175,7 @@ export default function Home() {
 
   const isLoading = (loansLoading || remittancesLoading || balanceLoading) && isConnected;
 
-  const { urgentLoans, dismissed, dismiss } = useRepaymentReminder(loans);
+  const { urgentLoans, dismissed, dismiss, now } = useRepaymentReminder(loans);
 
   const currentCreditScore = useMemo(() => {
     if (!creditHistory || creditHistory.length === 0) return null;
@@ -307,7 +322,7 @@ export default function Home() {
       </header>
 
       {!dismissed && urgentLoans.length > 0 && (
-        <RepaymentReminderBanner urgentLoans={urgentLoans} onDismiss={dismiss} />
+        <RepaymentReminderBanner urgentLoans={urgentLoans} now={now} onDismiss={dismiss} />
       )}
 
       <ErrorBoundary scope="dashboard summary" variant="section">

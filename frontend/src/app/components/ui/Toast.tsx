@@ -1,18 +1,18 @@
 "use client";
 
 import { Toaster as SonnerToaster } from "sonner";
-import { useEffect, useState } from "react";
+import { useHydrated } from "../../hooks/useHydrated";
 
 /**
  * Toast notification component using Sonner.
  * Provides a clean, accessible toast system with dark mode support.
  */
 export function Toaster() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // `useHydrated` reads React's own hydration state rather than mirroring it in
+  // a `useState` that an effect flips, so this no longer triggers the
+  // cascading-render warning that `react-hooks/set-state-in-effect` reports for
+  // the `useState` + `useEffect` pair.
+  const mounted = useHydrated();
 
   if (!mounted) return null;
 

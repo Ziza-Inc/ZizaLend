@@ -132,3 +132,50 @@ backend/src/services/authService.ts — generateJwtToken, verifyJwtToken,
 backend/src/auth/rbac.ts            — ROLE_SCOPES, resolveRoleForWallet,
                                       resolveScopesForRole
 ```
+
+---
+
+## Contract-side trust model
+
+This document covers the backend API. The contracts enforce their own model, and
+one part of it is deliberately reachable from a single key, so it is recorded
+here as well as in the
+[governance runbook](runbooks/governance-admin-rotation.md).
+
+### Admin escape hatch
+
+Every governable contract (`remittance_nft`, `loan_manager`, `lending_pool`)
+exposes the same three related entry points:
+
+| Entry point | Authorised by | Effect |
+| --- | --- | --- |
+| `set_governance(governance)` | current admin | Records the governance contract permitted to replace this contract's admin |
+| `set_admin(new_admin)` | the governance contract **when one is configured**, otherwise the current admin | Replaces the admin in one step. This is what `MultisigGovernance::finalize_admin_transfer` calls, and it is the boundary at which the target verifies the caller really is the governance contract rather than merely holding the admin key |
+| `propose_admin(new_admin)`, then `accept_admin()` | current admin, then the proposed admin | Two-step replacement that works whether or not governance is configured |
+
+`set_governance` is what makes governance meaningful. Without it a single admin
+key could call `set_admin` directly and bypass the 24-hour timelock and the
+signer quorum that `MultisigGovernance` enforces, which would make the whole
+apparatus decorative.
+
+**The escape hatch.** After `set_governance`, `propose_admin` /
+`accept_admin` remain available to the current admin. That is deliberate: a
+governance module that cannot be bypassed is one that can permanently strand a
+contract if its signers lose access to their keys, and a stranded lending pool
+is worse than a governed one with a documented recovery path.
+
+The consequence is stated plainly, because it is the entire reason this section
+exists: **the admin key can still rotate the admin without governance.**
+Governance is the intended path, not the only one.
+
+**Mitigation — alert on these two events, on all three contracts:**
+
+| Event | Topics | Data | Meaning |
+| --- | --- | --- | --- |
+| `AdminProposed` | `AdminProposed`, current admin | proposed admin | A two-step rotation has started. If nobody expected one, treat it as an incident |
+| `AdminTransferred` | `AdminTransferred`, `via` | `(previous_admin, new_admin)` | The admin changed. `via` is `accept`, `governance` or `admin`, and it is the field that says whether the escape hatch was used |
+
+An `AdminTransferred` whose `via` is `accept` or `admin`, with no governance
+proposal behind it, is the escape hatch in use and needs a human decision. The
+procedure is in
+[docs/runbooks/governance-admin-rotation.md](runbooks/governance-admin-rotation.md).

@@ -307,6 +307,14 @@ jobs:
       - name: Build
         run: npm run build
         working-directory: frontend
+      - name: Check the client bundle budget
+        # Reads the build output from the step above, so it runs here instead of
+        # in a job of its own that would have to build a second time. The budgets
+        # in `frontend/bundle-budget.json` are derived from a measurement of this
+        # build, not chosen, so this fails on a real regression rather than on
+        # ordinary churn. `npm run analyze` prints the treemap for a failure.
+        run: npm run check:bundle-size
+        working-directory: frontend
 
   scripts-typecheck:
     needs: supply-chain-audit
@@ -339,6 +347,13 @@ jobs:
       # scoped to one workspace, and its whole value is that it fails on a pull request.
       - name: Enforce the quarantine policy
         run: node scripts/check-quarantine.mjs
+        working-directory: .
+
+      # A contract README's error table is what an integrator reads to decide
+      # whether a failure is worth retrying, so it is checked against the enum
+      # rather than left to drift. Pure text check: a checkout and node, no Rust.
+      - name: Check contract error documentation
+        run: node scripts/check-contract-error-docs.mjs
         working-directory: .
 
   packages:

@@ -63,3 +63,41 @@ A non-transferable (with cooldown) reputation NFT that tracks a borrower's credi
 ## Events
 
 `Mint`, `AdmRemint`, `NftBurned`, `ScoreUpd`, `ScoreDecr`, `Seized`, `Transfer`, `MntAuth`, `MntRev`, `UriUpd`, `HashUpd`, `Paused`, `Unpaused`, `AdminProposed`, `AdminTransferred`, `ContractUpgraded`.
+
+## Errors
+
+Every variant of `NftError` in [`src/lib.rs`](src/lib.rs), with the condition
+that raises it and whether a caller can usefully try again. Soroban reports these
+on chain as `Error(Contract, #<code>)`, so the number is the stable part and the
+name is the readable one.
+
+The table is kept complete by `scripts/check-contract-error-docs.mjs`, which
+fails CI when the enum and this table disagree in either direction.
+
+| Code | Variant | Raised when | Retryable |
+| ---: | --- | --- | --- |
+| 1 | `AlreadyInitialized` | `initialize` is called on a contract that already has an admin | No |
+| 2 | `NotInitialized` | A function that needs the admin runs before `initialize`, including `set_admin` | No |
+| 3 | `UnauthorizedMinter` | The caller is neither the admin nor an authorised minter | No, unless the caller is wrong and a correct one can be used |
+| 4 | `NftAlreadyExists` | `mint` is called for an address that already holds an NFT | No |
+| 5 | `BurnedRequiresApproval` | `mint` is called for a burned address; recovery needs `admin_remint` | No, and not by the caller — it needs admin approval |
+| 6 | `NftNotFound` | A read or write names an address with no NFT | No |
+| 7 | `InvalidRepaymentAmount` | `update_score` receives a repayment amount of zero or less | No, without a valid amount |
+| 8 | `CollateralAlreadySeized` | `seize_collateral` is called for collateral already marked seized | No |
+| 9 | `SelfTransfer` | `transfer` names the same address as sender and recipient | No |
+| 10 | `DestinationOccupied` | `transfer` targets an address that already has remittance state | No |
+| 11 | `TransferCooldownActive` | `transfer` is called before the 17,280-ledger cooldown elapses | Yes, once the cooldown has passed |
+| 12 | `InvalidThreshold` | `set_default_burn_threshold` receives 0 or a value above `MAX_ALLOWED_BURN_THRESHOLD` | No |
+| 13 | `ContractPaused` | The contract is paused and the operation is not permitted while paused | Yes, once an admin unpauses |
+| 14 | `InvalidHistoryHash` | `update_history_hash` receives an all-zero hash | No |
+| 15 | `NoProposedAdmin` | `accept_admin` is called with no proposal outstanding | No |
+| 16 | `RemintNotApproved` | `admin_remint` is called without a prior `approve_remint` | Yes, once an admin approves |
+| 17 | `BelowMinimum` | `update_score` receives a repayment below the configured minimum | No, without a valid amount |
+| 18 | `InvalidMetadataUri` | A metadata URI is empty, longer than `MAX_METADATA_URI_LEN` (256), or uses a scheme outside `ipfs://` / `https://` | No |
+| 19 | `MinterLimitReached` | `authorize_minter` would exceed `MAX_AUTHORIZED_MINTERS` (32) | Yes, once a minter is revoked |
+| 20 | `UnauthorizedScoreRecorder` | A score write comes from an address that is not the configured `ScoreRecorder` (and not the admin), or no recorder is configured | No, unless the caller is wrong |
+| 21 | `CannotRevokeAdmin` | `revoke_minter` names the current admin, whose minting authority comes from the admin role | No, and not by the caller — transfer the admin instead |
+
+"Retryable" means the same call can succeed later without the caller changing
+anything but timing. A non-retryable code needs a different input, a different
+caller, or an admin action — retrying it unchanged fails identically.
