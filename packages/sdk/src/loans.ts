@@ -5,7 +5,12 @@
  * refinance, extend, liquidate, collateral management, and queries.
  */
 
-import { Client } from './client.js';
+import { Client } from "./client.js";
+import {
+  collectPages,
+  iteratePages,
+  type PaginatorOptions,
+} from "./pagination.js";
 
 export interface BorrowerLoan {
   loanId: number;
@@ -14,7 +19,7 @@ export interface BorrowerLoan {
   totalRepaid: number;
   totalOwed: number;
   nextPaymentDeadline: string;
-  status: 'active' | 'repaid' | 'defaulted';
+  status: "active" | "repaid" | "defaulted";
   borrower: string;
   approvedAt?: string | null;
 }
@@ -40,7 +45,7 @@ export interface LoanDetailsSummary {
   interestRate: number;
   termLedgers: number;
   elapsedLedgers: number;
-  status: 'active' | 'repaid' | 'defaulted';
+  status: "active" | "repaid" | "defaulted";
   requestedAt?: string | null;
   approvedAt?: string | null;
   events: LoanSummaryEvent[];
@@ -102,6 +107,31 @@ export interface PaginatedResponse<T> {
   };
 }
 
+/**
+ * The envelope `GET /loans` actually returns.
+ *
+ * The controller builds it with `createCursorPaginatedResponse`, which nests the payload under
+ * `data` and puts the cursor in `page_info`. That is a different shape from
+ * `BorrowerLoansResponse` — which describes the loans at the top level and no cursor at all —
+ * so this is what `iterate` reads. `BorrowerLoansResponse` stays as it is, because changing it
+ * would change what `list` declares.
+ */
+export interface BorrowerLoansPage {
+  success: boolean;
+  data: {
+    borrower?: string;
+    loans: BorrowerLoan[];
+  };
+  total_count?: number | null;
+  page_info?: {
+    limit: number;
+    count?: number;
+    next_cursor?: string | null;
+    has_previous?: boolean;
+    has_next?: boolean;
+  };
+}
+
 export class Loans {
   constructor(private client: Client) {}
 
@@ -109,13 +139,80 @@ export class Loans {
    * Get all loans for the authenticated user.
    */
   async list(params?: {
-    status?: 'active' | 'repaid' | 'defaulted' | 'pending';
+    status?: "active" | "repaid" | "defaulted" | "pending";
     limit?: number;
     cursor?: string;
     from?: string;
     to?: string;
   }): Promise<BorrowerLoansResponse> {
-    return this.client.get<BorrowerLoansResponse>('/loans', params);
+    return this.client.get<BorrowerLoansResponse>("/loans", params);
+  }
+
+  /**
+   * Iterate every loan for the authenticated user, page by page.
+   *
+   *     for await (const loan of client.loans.iterate({ status: 'active' })) { ... }
+   *
+   * Reads the endpoint through `BorrowerLoansPage` rather than `BorrowerLoansResponse`,
+   * because the endpoint wraps its payload the way `createCursorPaginatedResponse` does — the
+   * loans arrive under `data`, with the cursor under `page_info`. `BorrowerLoansResponse`
+   * describes the pre-envelope shape and is left as it is: correcting it changes what `list`
+   * declares, which is a separate change from adding an iterator.
+   */
+  async *iterate(
+    params?: {
+      status?: "active" | "repaid" | "defaulted" | "pending";
+      limit?: number;
+      from?: string;
+      to?: string;
+    } & PaginatorOptions,
+  ): AsyncGenerator<BorrowerLoan, void, undefined> {
+    const { maxPages, startCursor, ...filters } = params ?? {};
+    const pageOptions: PaginatorOptions = { maxPages, startCursor };
+
+    yield* iteratePages<BorrowerLoan>(async (cursor) => {
+      const page = await this.client.get<BorrowerLoansPage>("/loans", {
+        ...filters,
+        cursor,
+      });
+
+      return {
+        items: page.data?.loans ?? [],
+        nextCursor: page.page_info?.next_cursor ?? undefined,
+      };
+    }, pageOptions);
+  }
+
+  /**
+   * Fetch every page and return the loans as one array.
+   *
+   * `maxPages` still applies: a collector cannot stop early, so the ceiling is the only thing
+   * that bounds it.
+   */
+  async collect(
+    params?: {
+      status?: "active" | "repaid" | "defaulted" | "pending";
+      limit?: number;
+      from?: string;
+      to?: string;
+    } & PaginatorOptions,
+  ): Promise<BorrowerLoan[]> {
+    const { maxPages, startCursor, ...filters } = params ?? {};
+
+    return collectPages<BorrowerLoan>(
+      async (cursor) => {
+        const page = await this.client.get<BorrowerLoansPage>("/loans", {
+          ...filters,
+          cursor,
+        });
+
+        return {
+          items: page.data?.loans ?? [],
+          nextCursor: page.page_info?.next_cursor ?? undefined,
+        };
+      },
+      { maxPages, startCursor },
+    );
   }
 
   /**
@@ -129,15 +226,22 @@ export class Loans {
    * Get loan configuration parameters.
    */
   async getConfig(): Promise<LoanConfig> {
-    return this.client.get<{ success: boolean; [key: string]: unknown }>('/loans/config') as unknown as Promise<LoanConfig>;
+    return this.client.get<{ success: boolean; [key: string]: unknown }>(
+      "/loans/config",
+    ) as unknown as Promise<LoanConfig>;
   }
 
   /**
    * Build an unsigned loan request transaction.
    * The borrower must sign this with their Stellar wallet and submit.
    */
-  async buildRequestTx(params: BuildLoanRequestTxParams): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>('/loans/request', params);
+  async buildRequestTx(
+    params: BuildLoanRequestTxParams,
+  ): Promise<UnsignedTransactionResponse> {
+    return this.client.post<UnsignedTransactionResponse>(
+      "/loans/request",
+      params,
+    );
   }
 
   /**
@@ -147,7 +251,10 @@ export class Loans {
     loanId: number,
     params: BuildRepayTxParams,
   ): Promise<RepayTransactionResponse> {
-    return this.client.post<RepayTransactionResponse>(`/loans/${loanId}/repay`, params);
+    return this.client.post<RepayTransactionResponse>(
+      `/loans/${loanId}/repay`,
+      params,
+    );
   }
 
   /**
@@ -157,23 +264,30 @@ export class Loans {
     loanId: number,
     signedTxXdr: string,
   ): Promise<SubmittedTransactionResponse> {
-    return this.client.post<SubmittedTransactionResponse>(`/loans/${loanId}/submit`, {
-      signedTxXdr,
-    });
+    return this.client.post<SubmittedTransactionResponse>(
+      `/loans/${loanId}/submit`,
+      {
+        signedTxXdr,
+      },
+    );
   }
 
   /**
    * Build a cancel loan transaction.
    */
   async buildCancelTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/cancel`);
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/cancel`,
+    );
   }
 
   /**
    * Build a reject loan transaction (admin).
    */
   async buildRejectTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/reject`);
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/reject`,
+    );
   }
 
   /**
@@ -183,14 +297,19 @@ export class Loans {
     loanId: number,
     params: { newAmount?: string; newTermLedgers?: number },
   ): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/refinance`, params);
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/refinance`,
+      params,
+    );
   }
 
   /**
    * Build an extend loan transaction.
    */
   async buildExtendTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/extend`);
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/extend`,
+    );
   }
 
   /**
@@ -203,22 +322,32 @@ export class Loans {
   /**
    * Build a deposit collateral transaction.
    */
-  async buildDepositCollateralTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/collateral/deposit`);
+  async buildDepositCollateralTx(
+    loanId: number,
+  ): Promise<UnsignedTransactionResponse> {
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/collateral/deposit`,
+    );
   }
 
   /**
    * Build a release collateral transaction.
    */
-  async buildReleaseCollateralTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/collateral/release`);
+  async buildReleaseCollateralTx(
+    loanId: number,
+  ): Promise<UnsignedTransactionResponse> {
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/collateral/release`,
+    );
   }
 
   /**
    * Build a liquidate loan transaction.
    */
   async buildLiquidateTx(loanId: number): Promise<UnsignedTransactionResponse> {
-    return this.client.post<UnsignedTransactionResponse>(`/loans/${loanId}/liquidate`);
+    return this.client.post<UnsignedTransactionResponse>(
+      `/loans/${loanId}/liquidate`,
+    );
   }
 
   /**

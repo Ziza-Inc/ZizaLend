@@ -20,29 +20,55 @@
  * ```
  */
 
-import { Client } from './client.js';
-export { Client, ApiError, RequestDeadlineExceededError, parseRetryAfterMs } from './client.js';
-export type { ClientConfig, ApiResponse, ResponseHeadersLike } from './client.js';
+import { Client } from "./client.js";
+export {
+  Client,
+  ApiError,
+  RequestDeadlineExceededError,
+  parseRetryAfterMs,
+} from "./client.js";
+export type {
+  ClientConfig,
+  ApiResponse,
+  ResponseHeadersLike,
+} from "./client.js";
+
+// The error-code union and its helpers, generated from the backend registry so a consumer
+// can branch on `ApiError.errorCode` exhaustively instead of comparing against strings.
+export {
+  API_ERROR_CODES,
+  UNKNOWN_API_ERROR,
+  isKnownApiErrorCode,
+  toApiErrorCode,
+} from "./errorCodes.generated.js";
+export type {
+  ApiErrorCode,
+  KnownApiErrorCode,
+} from "./errorCodes.generated.js";
 
 // ClientConfig is used as a constructor parameter type in the Zizalend class.
 // With isolatedModules, the type-only export above doesn't create a local binding,
 // so we need an explicit type import here.
-type _ClientConfig = import('./client.js').ClientConfig;
+type _ClientConfig = import("./client.js").ClientConfig;
 
-import { Auth } from './auth.js';
-export { Auth, readTokenExpiryMs, TOKEN_EXPIRY_SKEW_MS } from './auth.js';
-export type { ChallengeMessage, LoginData, VerifyData } from './auth.js';
+import { Auth } from "./auth.js";
+export { Auth, readTokenExpiryMs, TOKEN_EXPIRY_SKEW_MS } from "./auth.js";
+export type { ChallengeMessage, LoginData, VerifyData } from "./auth.js";
 
-import { Health } from './health.js';
-export { Health } from './health.js';
-export type { HealthCheckResponse, DeepHealthCheckResponse, VersionResponse } from './health.js';
+import { Health } from "./health.js";
+export { Health } from "./health.js";
+export type {
+  HealthCheckResponse,
+  DeepHealthCheckResponse,
+  VersionResponse,
+} from "./health.js";
 
-import { User } from './user.js';
-export { User } from './user.js';
-export type { UserProfile, UpdateUserProfileInput } from './user.js';
+import { User } from "./user.js";
+export { User } from "./user.js";
+export type { UserProfile, UpdateUserProfileInput } from "./user.js";
 
-import { Loans } from './loans.js';
-export { Loans } from './loans.js';
+import { Loans } from "./loans.js";
+export { Loans } from "./loans.js";
 export type {
   BorrowerLoan,
   BorrowerLoansResponse,
@@ -54,59 +80,60 @@ export type {
   BuildRepayTxParams,
   BuildLoanRequestTxParams,
   LoanConfig,
-} from './loans.js';
+  BorrowerLoansPage,
+} from "./loans.js";
 
-import { Pool } from './pool.js';
-export { Pool } from './pool.js';
+import { Pool } from "./pool.js";
+export { Pool } from "./pool.js";
 export type {
   PoolStats,
   DepositorPortfolio,
   SharePriceResponse,
   BuildPoolTxParams,
-} from './pool.js';
+} from "./pool.js";
 
-import { Scores } from './scores.js';
-export { Scores } from './scores.js';
+import { Scores } from "./scores.js";
+export { Scores } from "./scores.js";
 export type {
   UserScore,
   ScoreBreakdownResponse,
   ScoreBreakdownMetrics,
   ScoreHistoryEntry,
   ScoreUpdateResponse,
-} from './scores.js';
+} from "./scores.js";
 
-import { Notifications } from './notifications.js';
-export { Notifications } from './notifications.js';
+import { Notifications } from "./notifications.js";
+export { Notifications } from "./notifications.js";
 export type {
   Notification as ZizaNotification,
   NotificationsData,
   NotificationPreferences,
-} from './notifications.js';
+} from "./notifications.js";
 
-import { Remittances } from './remittances.js';
-export { Remittances } from './remittances.js';
+import { Remittances } from "./remittances.js";
+export { Remittances } from "./remittances.js";
 export type {
   Remittance,
   RemittanceResponse,
   CreateRemittanceInput,
   PaginatedRemittancesResponse,
-} from './remittances.js';
+} from "./remittances.js";
 
-import { Transactions } from './transactions.js';
-export { Transactions } from './transactions.js';
+import { Transactions } from "./transactions.js";
+export { Transactions } from "./transactions.js";
 export type {
   Transaction as ZizaTransaction,
   TransactionsResponse,
-} from './transactions.js';
+} from "./transactions.js";
 
-import { Events } from './events.js';
+import { Events } from "./events.js";
 export {
   Events,
   CANONICAL_EVENT_TYPES,
   LEGACY_EVENT_TYPE_ALIASES,
   isKnownLoanEventRecord,
   isLoanEventType,
-} from './events.js';
+} from "./events.js";
 export type {
   LoanEventRecord,
   LoanEventRecordBase,
@@ -116,10 +143,10 @@ export type {
   UnrecognisedLoanEventRecord,
   PaginatedEventsResponse,
   EventStreamStatusResponse,
-} from './events.js';
+} from "./events.js";
 
-import { Indexer } from './indexer.js';
-export { Indexer } from './indexer.js';
+import { Indexer } from "./indexer.js";
+export { Indexer } from "./indexer.js";
 export type {
   IndexerStatusData,
   WebhookSubscription,
@@ -127,15 +154,22 @@ export type {
   WebhookDelivery,
   ReindexResult,
   DefaultCheckRunResult,
-} from './indexer.js';
+} from "./indexer.js";
 
-import { Admin } from './admin.js';
-export { Admin } from './admin.js';
-export type { AuditLogEntry, LoanDispute } from './admin.js';
+import { Admin } from "./admin.js";
+export { Admin } from "./admin.js";
+export type { AuditLogEntry, LoanDispute } from "./admin.js";
 
-import { Simulation } from './simulation.js';
-export { Simulation } from './simulation.js';
-export type { RemittanceHistoryResponse, SimulatePaymentResponse } from './simulation.js';
+import { Simulation } from "./simulation.js";
+export { Simulation } from "./simulation.js";
+export type {
+  RemittanceHistoryResponse,
+  SimulatePaymentResponse,
+} from "./simulation.js";
+
+// Cursor pagination.
+export { iteratePages, collectPages, DEFAULT_MAX_PAGES } from "./pagination.js";
+export type { IteratorPage, PaginatorOptions } from "./pagination.js";
 
 /**
  * Zizalend API client — the main entry point.

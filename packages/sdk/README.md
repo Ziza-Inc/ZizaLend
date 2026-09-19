@@ -55,11 +55,11 @@ interface ClientConfig {
 
 ### Authentication Modes
 
-| Mode | Use Case | Config |
-|------|----------|--------|
-| **JWT (Browser)** | User-facing apps | `setToken()` after login |
-| **API Key (Server)** | Admin automation, webhooks | Pass `apiKey` in constructor |
-| **Unauthenticated** | Health checks, public endpoints | No token or key needed |
+| Mode                 | Use Case                        | Config                       |
+| -------------------- | ------------------------------- | ---------------------------- |
+| **JWT (Browser)**    | User-facing apps                | `setToken()` after login     |
+| **API Key (Server)** | Admin automation, webhooks      | Pass `apiKey` in constructor |
+| **Unauthenticated**  | Health checks, public endpoints | No token or key needed       |
 
 ## API Modules
 
@@ -78,14 +78,14 @@ await api.auth.logout();
 
 #### Session validity
 
-`isAuthenticated()` answers whether the token the client holds is still *usable*, not merely
+`isAuthenticated()` answers whether the token the client holds is still _usable_, not merely
 whether one is set. It reads the token's `exp` claim and treats a token within a 30-second
 skew margin of expiry as expired, so a restored session whose token has lapsed does not render
 a signed-in surface that fails every request with a 401.
 
 ```ts
-api.auth.hasToken();          // is a token set at all?
-api.auth.isAuthenticated();   // is it still usable?
+api.auth.hasToken(); // is a token set at all?
+api.auth.isAuthenticated(); // is it still usable?
 api.auth.getTokenExpiresAt(); // when does it lapse, or null if that cannot be read
 ```
 
@@ -216,12 +216,14 @@ await api.scores.reconcile(address);
 
 ```ts
 // List notifications with filters
-const { notifications, pagination, unreadCount } = await api.notifications.list({
-  status: "unread",
-  type: "repayment_due",
-  page: 1,
-  limit: 20,
-});
+const { notifications, pagination, unreadCount } = await api.notifications.list(
+  {
+    status: "unread",
+    type: "repayment_due",
+    page: 1,
+    limit: 20,
+  },
+);
 
 // Mark as read
 await api.notifications.markRead(notificationId);
@@ -283,7 +285,9 @@ const { transactions, pagination } = await api.transactions.list({
 
 ```ts
 // Stream loan events in real-time
-const stream = api.events.stream({ eventTypes: ["LoanRepaid", "LoanDefaulted"] });
+const stream = api.events.stream({
+  eventTypes: ["LoanRepaid", "LoanDefaulted"],
+});
 
 stream.onMessage((event) => {
   console.log("New event:", event.eventType, event.loanId);
@@ -404,7 +408,9 @@ try {
     }
   } else if (error instanceof RequestDeadlineExceededError) {
     // The client stopped the request, the network did not fail. See "Bounding total latency".
-    console.error(`Gave up after ${error.elapsedMs}ms of a ${error.totalTimeoutMs}ms budget`);
+    console.error(
+      `Gave up after ${error.elapsedMs}ms of a ${error.totalTimeoutMs}ms budget`,
+    );
   }
 }
 ```
@@ -454,6 +460,73 @@ When the budget runs out the client throws `RequestDeadlineExceededError`, carry
 last transport error: nothing was refused by the server and nothing necessarily failed on the
 network — the client chose to stop, and reporting the underlying `ECONNRESET` would attribute
 that decision to the network.
+
+### Typed error codes
+
+`ApiError.errorCode` is a closed union generated from the backend registry, so a `switch` over
+it is exhaustive and a comparison against a code the backend has removed fails to compile
+rather than silently never matching.
+
+```ts
+import { ApiError, UNKNOWN_API_ERROR } from "@zizalend/sdk";
+
+try {
+  await api.loans.buildRepayTx(loanId, { borrowerPublicKey, amount: "100" });
+} catch (error) {
+  if (error instanceof ApiError) {
+    switch (error.errorCode) {
+      case "INSUFFICIENT_COLLATERAL":
+        break;
+      case "LOAN_NOT_ACTIVE":
+        break;
+      case UNKNOWN_API_ERROR:
+        // The failure did not come from the backend's error handler — a proxy 502, a
+        // transport error surfacing as a response, or a backend that predates a code.
+        break;
+    }
+  }
+}
+```
+
+The union is regenerated from `backend/src/errors/errorCodes.ts` by
+`npm run generate:error-codes`; CI fails if the generated file and the registry disagree.
+`UNKNOWN_API_ERROR` is the only member that is not a backend code, and `hasKnownErrorCode`
+tells you whether the server actually named the failure.
+
+### Iterating paginated collections
+
+`loans`, `remittances`, `transactions`, and the indexer's borrower events all paginate with a
+cursor. Each module exposes an async iterator that walks every page, so consumers do not each
+reimplement the loop:
+
+```ts
+// Every active loan, page by page.
+for await (const loan of api.loans.iterate({ status: "active" })) {
+  console.log(loan.loanId);
+}
+
+// Whole transaction history as an array.
+const all = await api.transactions.collect();
+
+// Borrower events, read through the endpoint's nested envelope.
+for await (const event of api.indexer.iterateBorrowerEvents(borrower)) {
+  console.log(event.eventType);
+}
+```
+
+`iterate` / `iterateBorrowerEvents` return an `AsyncGenerator`, so a page is fetched only when
+its items are requested and `break` stops fetching. `collect` gathers everything into one array.
+The non-iterating `list` methods are unchanged and still fetch a single page.
+
+Iteration stops on three conditions, all of which matter:
+
+- **No next cursor** — the server says there is nothing more.
+- **A cursor that has already been requested.** A server that echoes the cursor it was given
+  makes a loop that only checks for an absent cursor spin forever; the iterator keeps the set of
+  cursors it has sent and returns when one repeats.
+- **`maxPages`** (default `100`). A server that mints a fresh cursor per request without ever
+  advancing is not detectable from the cursor alone, so the page ceiling is what bounds the
+  loop. Pass `startCursor` to resume from a cursor you stored.
 
 ## Event Streaming
 
@@ -506,10 +579,10 @@ import type {
 
 ## Related Packages
 
-| Package | Description |
-|---------|-------------|
-| `@zizalend/sdk` | Typed API client (this package) |
-| `@zizalend/types` | Auto-generated OpenAPI types |
+| Package           | Description                     |
+| ----------------- | ------------------------------- |
+| `@zizalend/sdk`   | Typed API client (this package) |
+| `@zizalend/types` | Auto-generated OpenAPI types    |
 
 ## License
 

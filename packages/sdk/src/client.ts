@@ -5,6 +5,8 @@
  * retry logic for transient failures, and provides a typed fetch interface.
  */
 
+import { isKnownApiErrorCode, toApiErrorCode, type ApiErrorCode } from './errorCodes.generated.js';
+
 export interface ClientConfig {
   /** Base URL for the API (e.g. http://localhost:3001/api/v1) */
   baseUrl: string;
@@ -72,23 +74,44 @@ export class RequestDeadlineExceededError extends Error {
 
 export class ApiError extends Error {
   public readonly statusCode: number;
-  public readonly errorCode?: string;
+
+  /**
+   * The code the API reported, or `UNKNOWN_API_ERROR` when the failure did not come from
+   * the backend's error handler.
+   *
+   * Always populated and always one of a closed set, so `switch (err.errorCode)` is
+   * exhaustive and a comparison against a code that no longer exists fails to compile
+   * instead of quietly never matching. The set is derived from the backend registry by
+   * `scripts/generate-sdk-error-codes.mjs`.
+   */
+  public readonly errorCode: ApiErrorCode;
+
   public readonly field?: string;
   public readonly details?: Record<string, unknown>;
 
   constructor(
     message: string,
     statusCode: number,
-    errorCode?: string,
+    errorCode?: ApiErrorCode | string,
     field?: string,
     details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
-    this.errorCode = errorCode;
+    // Normalised here rather than at each call site, so no consumer ever receives an
+    // arbitrary string from the wire under this property.
+    this.errorCode = toApiErrorCode(errorCode);
     this.field = field;
     this.details = details;
+  }
+
+  /**
+   * Whether the server named the failure, rather than the client falling back to the
+   * unknown member. Useful for logging and for deciding whether retrying could help.
+   */
+  get hasKnownErrorCode(): boolean {
+    return isKnownApiErrorCode(this.errorCode);
   }
 
   get isAuthError(): boolean {
