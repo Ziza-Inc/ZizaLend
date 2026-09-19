@@ -24,12 +24,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The review reads the repository's dependency graph, which indexes every manifest it
+      # understands — all five npm lockfiles (root, backend, frontend, scripts, scripts/video)
+      # and both Cargo.lock files (contracts, contracts/fuzz). It is not scoped to the default
+      # path, but that is easy to assume and hard to notice, so `npm run
+      # check:dependency-review-scope` asserts it against the lockfiles actually in the tree and
+      # CI fails if a new lockfile or ecosystem appears without a decision being made about it.
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
-          deny-licenses: |
-            AGPL-1.0, AGPL-3.0, BSD-4-Clause, CC-BY-NC-1.0, CC-BY-NC-2.0,
-            CC-BY-NC-2.5, CC-BY-NC-3.0, CC-BY-NC-4.0, OSL-1.0, OSL-1.1,
-            OSL-2.0, OSL-2.1, OSL-3.0, SSPL-1.0
+          # An allowlist rather than a denylist. A denylist reviews only the licences somebody
+          # already thought of, so a dependency under a licence never considered arrives with no
+          # objection. Every entry below is one this repository has deliberately accepted; a
+          # licence not named here is refused.
+          #
+          # The value is a comma-separated list and nothing else: the action splits on commas and
+          # trims, so a comment inside the block would be read as a licence name. The rationale
+          # for each group is here instead.
+          #
+          #   Permissive, and the bulk of the tree:
+          #     0BSD, Apache-2.0, BSD-2-Clause, BSD-3-Clause, BlueOak-1.0.0, ISC, MIT, MIT-0,
+          #     Unlicense, Zlib
+          #   Required by the Rust toolchain — several crates are `Apache-2.0 WITH
+          #   LLVM-exception`, and the compiler's Unicode tables are `Unicode-3.0`:
+          #     Apache-2.0 WITH LLVM-exception, Unicode-3.0
+          #   Permissive with attribution requirements:
+          #     CC-BY-4.0, CC0-1.0, NCSA, Python-2.0
+          #   Weak copyleft — MPL-2.0 is file-scoped and LGPL-3.0-or-later attaches to the
+          #   library rather than to anything that links it, so neither reaches the code in this
+          #   repository. LGPL-3.0-or-later is present because `sharp` ships `libvips` binaries
+          #   under it; replacing sharp means removing this entry:
+          #     LGPL-3.0-or-later, MPL-2.0
+          #
+          # `FSL-1.1-MIT` is deliberately absent, and this is the one entry where the absence is
+          # a limitation rather than a refusal. `@sentry/cli` and its per-platform binaries ship
+          # under the Functional Source License — source-available, and it restricts competing
+          # use — but the identifier has no place in the SPDX list the action validates against.
+          # Listing it here does not permit the dependency, it stops the review:
+          #
+          #     ##[error]Invalid license(s) in allow-licenses: FSL-1.1-MIT
+          #
+          # The whole job fails on the configuration before it reads a single manifest, which is
+          # worse than either allowing or refusing it. It is recorded instead in
+          # `NOT_EXPRESSIBLE_AS_AN_ALLOWLIST_ENTRY` in
+          # scripts/check-dependency-review-scope.mjs, beside the dependency that brought it in,
+          # so the decision is written down and the checker can tell "the policy permits this"
+          # apart from "the policy has no way to say anything about this".
+          #
+          # The consequence a reviewer should know: the review will refuse `FSL-1.1-MIT` on any
+          # future addition or update of a Sentry package, because there is no way to allow it
+          # through this file. Removing the Sentry SDK is the only way to close that, and it costs
+          # source maps in production.
+          #
+          # `scripts/check-dependency-review-scope.mjs` validates the list in both directions: it
+          # must permit every licence already recorded in the lockfiles and the cargo registry, so
+          # the policy is never stricter than the tree in use; it must still refuse AGPL, GPL,
+          # SSPL, BUSL and the non-commercial Creative Commons variants; and it fails if any entry
+          # here is one the action would itself reject, so a repeat of the failure above is caught
+          # locally instead of in CI.
+          allow-licenses: |
+            0BSD, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause,
+            BlueOak-1.0.0, CC-BY-4.0, CC0-1.0, ISC, LGPL-3.0-or-later, MIT, MIT-0,
+            MPL-2.0, NCSA, Python-2.0, Unicode-3.0, Unlicense, Zlib

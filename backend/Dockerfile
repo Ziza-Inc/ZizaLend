@@ -11,6 +11,9 @@ RUN npm ci
 COPY tsconfig.json tsconfig.build.json ./
 COPY migrations ./migrations
 COPY src ./src
+# Operations scripts. They are invoked as `node scripts/<name>.mjs`, never imported by the
+# server, so they are copied alongside the sources rather than compiled into dist.
+COPY scripts ./scripts
 RUN npx tsc -p tsconfig.build.json
 
 # Production Stage
@@ -54,6 +57,12 @@ RUN npm ci --omit=dev \
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
 COPY migrations ./migrations
+
+# Operations scripts that have to run against a deployed database — presently
+# `reconcile-migration-names.mjs`, which must run before `node-pg-migrate up` on a database
+# that applied a migration under a name that has since been changed. Without this copy the
+# staging deploy would fail with "Cannot find module".
+COPY scripts ./scripts
 
 # Non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

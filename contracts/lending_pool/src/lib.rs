@@ -90,6 +90,10 @@ pub enum PoolError {
     // keeps its meaning.
     /// The token has not been registered as a market by the admin
     TokenNotAllowed = 16,
+    /// `adjust_outstanding` would push the outstanding counter past `i128::MAX`
+    OutstandingOverflow = 17,
+    /// `adjust_outstanding` would push the outstanding counter below zero
+    OutstandingUnderflow = 18,
 }
 
 /// Storage keys for the LendingPool contract.
@@ -1212,30 +1216,53 @@ impl LendingPool {
 
     /// Adjust the outstanding counter by a signed `delta`.
     ///
-    /// Retained for the LoanManager's net-delta call sites, but re-gated from
-    /// admin auth to LoanManager auth: the pool's admin and the contract that
-    /// creates loans are different roles, and only the latter moves this counter.
-    pub fn adjust_outstanding(env: Env, token: Address, delta: i128) {
-        if Self::require_loan_manager(&env).is_err() {
-            panic!("loan manager not set");
-        }
+    /// # Authorisation
+    ///
+    /// Exactly one caller may invoke this: the `LoanManager` address recorded by
+    /// [`Self::set_loan_manager`]. The gate is `loan_manager.require_auth()` inside
+    /// [`Self::require_loan_manager`] — address-based, not role-based — because the
+    /// pool's admin and the contract that creates loans are different roles, and only
+    /// the latter may move the pool's view of its own deployed principal.
+    ///
+    /// A call from any address other than the configured LoanManager aborts inside the
+    /// host's authorisation check. That refusal is deliberately *not* a typed error:
+    /// `require_auth` traps the invocation instead of returning a value, so there is no
+    /// code a client could branch on. See the comment on the reserved code 15.
+    ///
+    /// A call made before any LoanManager has been configured is a typed error
+    /// ([`PoolError::LoanManagerNotSet`]) rather than the panic this used to raise, so a
+    /// caller can distinguish "not wired up yet" from "not authorised".
+    ///
+    /// Retained for the LoanManager's net-delta call sites as the net-delta form of
+    /// [`Self::disburse`] and [`Self::settle_outstanding`].
+    ///
+    /// # Errors
+    ///
+    /// - [`PoolError::LoanManagerNotSet`] — no LoanManager has been configured
+    /// - [`PoolError::OutstandingOverflow`] — the delta would exceed `i128::MAX`
+    /// - [`PoolError::OutstandingUnderflow`] — the delta would take the counter below zero
+    pub fn adjust_outstanding(env: Env, token: Address, delta: i128) -> Result<(), PoolError> {
+        Self::require_loan_manager(&env)?;
 
         if delta == 0 {
-            return;
+            return Ok(());
         }
 
         let key = DataKey::TotalOutstanding(token.clone());
         let current = Self::read_total_outstanding(&env, &token);
         let updated = current
             .checked_add(delta)
-            .expect("total outstanding overflow");
+            .ok_or(PoolError::OutstandingOverflow)?;
 
+        // The counter is a signed total, but a negative one is not a meaningful state:
+        // it would mean more principal had been retired than was ever deployed.
         if updated < 0 {
-            panic!("total outstanding underflow");
+            return Err(PoolError::OutstandingUnderflow);
         }
 
         env.storage().instance().set(&key, &updated);
         Self::bump_instance_ttl(&env);
+        Ok(())
     }
 
     pub fn pool_balance(env: Env, token: Address) -> i128 {

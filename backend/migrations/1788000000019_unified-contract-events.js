@@ -3,14 +3,49 @@
  * @returns {void}
  */
 export const up = (pgm) => {
-  // 1. Rename the table
-  pgm.renameTable('loan_events', 'contract_events');
+  // Renamed from `1788000000018_unified-contract-events`, which collided with
+  // `1788000000018_add-loan-events-missing-indexes`. That collision mattered more than
+  // a cosmetic tie: the other migration creates indexes on `loan_events` and this one
+  // *renames that table*, so only the alphabetical accident of 'a' before 'u' kept the
+  // two from running the other way round and failing. The timestamp is now unique and
+  // the effective order is unchanged.
+  //
+  // Because the recorded name changed, a database that applied the old filename will
+  // run this one again, so every step is written to reach the same end state whether or
+  // not it has already been applied.
 
-  // 2. Rename the column (Postgres handles index column updates automatically)
-  pgm.renameColumn('contract_events', 'borrower', 'address');
+  // 1. Rename the table, unless an earlier run already did it.
+  pgm.sql(`
+    DO $$
+    BEGIN
+      IF to_regclass('contract_events') IS NULL
+         AND to_regclass('loan_events') IS NOT NULL THEN
+        ALTER TABLE loan_events RENAME TO contract_events;
+      END IF;
+    END
+    $$;
+  `);
 
-  // 3. Make address nullable (for events like YieldDistributed that may not have a user address)
-  pgm.alterColumn('contract_events', 'address', { notNull: false });
+  // 2. Rename the column (Postgres keeps index definitions pointing at it), again only
+  //    if the rename has not happened yet.
+  pgm.sql(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'contract_events'
+          AND column_name = 'borrower'
+      ) THEN
+        ALTER TABLE contract_events RENAME COLUMN borrower TO address;
+      END IF;
+    END
+    $$;
+  `);
+
+  // 3. Make address nullable (for events like YieldDistributed that may not have a
+  //    user address). "DROP NOT NULL" is a no-op when it is already dropped.
+  pgm.sql('ALTER TABLE contract_events ALTER COLUMN address DROP NOT NULL;');
 
   // 4. Rename indexes to match the new table and column names. pgm.renameIndex
   // doesn't exist in older node-pg-migrate versions, so use raw SQL with
@@ -29,9 +64,11 @@ export const up = (pgm) => {
     ALTER INDEX IF EXISTS loan_events_tx_hash_index RENAME TO contract_events_tx_hash_index;
   `);
 
-  // 5. Create a view for backward compatibility with existing code that still queries 'loan_events'
+  // 5. Create a view for backward compatibility with existing code that still queries
+  //    'loan_events'. "CREATE OR REPLACE" so a second run replaces the identical view
+  //    rather than failing with "relation already exists".
   pgm.sql(`
-    CREATE VIEW loan_events AS
+    CREATE OR REPLACE VIEW loan_events AS
     SELECT
       id,
       event_id,

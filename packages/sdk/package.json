@@ -12,10 +12,11 @@
       "default": "./dist/index.js"
     }
   },
+  "//": "jest is installed at the workspace root rather than in this package, so the test scripts reach up one level. `node_modules/jest/bin/jest.js` resolved to nothing from here, which made `npm test` in this package fail with a bare module-not-found.",
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --watch",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

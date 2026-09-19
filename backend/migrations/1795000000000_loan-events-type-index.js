@@ -9,7 +9,8 @@
 /** @type {import('node-pg-migrate').MigrationBuilder} */
 export const up = async (pgm) => {
   // loan_events is now a backward-compat VIEW (created by
-  // 1788000000018_unified-contract-events); the real table is contract_events.
+  // 1788000000019_unified-contract-events, previously 1788000000018); the real table is
+  // contract_events.
   // Target the table so the index attaches to actual storage.
   pgm.noTransaction();
   pgm.sql(`

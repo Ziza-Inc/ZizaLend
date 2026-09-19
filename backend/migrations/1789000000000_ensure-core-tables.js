@@ -29,7 +29,7 @@ export const up = (pgm) => {
   // Use to_regclass instead of pg_tables: pg_tables only lists ordinary tables
   // (relkind r/p) and excludes views, so the guard would evaluate TRUE when
   // loan_events exists as a compat VIEW (created by migration
-  // 1788000000018_unified-contract-events), causing CREATE TABLE to fail with
+  // 1788000000019_unified-contract-events, previously 1788000000018), causing CREATE TABLE to fail with
   // "relation loan_events already exists".
   pgm.sql(`
     DO $$

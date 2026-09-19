@@ -18,27 +18,37 @@ concurrency:
 
 jobs:
   supply-chain-audit:
-    # Observed ~6s. The step is a few greps over four lockfiles.
+    # Observed ~7s. A few greps over every lockfile, plus a policy check that reads no network.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Block compromised packages
+        # The lockfile list is discovered rather than written out. A hardcoded list is how
+        # `scripts/video/package-lock.json` went unscanned while the step still reported a clean
+        # bill of health: the list named four lockfiles, and there are five npm ones.
         run: |
           echo "Scanning lockfiles for known malicious packages..."
+
+          mapfile -t LOCKFILES < <(git ls-files | grep -E '(^|/)(package-lock\.json|npm-shrinkwrap\.json|Cargo\.lock)$')
+          printf '  watching %d lockfile(s)\n' "${#LOCKFILES[@]}"
+          printf '    %s\n' "${LOCKFILES[@]}"
+
           BLOCKED="plain-crypto-js"
-          for lockfile in backend/package-lock.json frontend/package-lock.json scripts/package-lock.json; do
-            if [ -f "$lockfile" ] && grep -q "$BLOCKED" "$lockfile"; then
+          for lockfile in "${LOCKFILES[@]}"; do
+            if grep -q "$BLOCKED" "$lockfile"; then
               echo "::error::SUPPLY CHAIN ALERT: $lockfile contains $BLOCKED (confirmed malware)"
               exit 1
             fi
           done
-          LOCKFILES="backend/package-lock.json frontend/package-lock.json scripts/package-lock.json package-lock.json"
-          if grep '"axios": "1\.14\.' $LOCKFILES; then
+
+          if grep '"axios": "1\.14\.' "${LOCKFILES[@]}"; then
             echo "::error::SUPPLY CHAIN ALERT: axios 1.14.x detected (compromised version)"
             exit 1
           fi
           echo "No known malicious packages found."
+      - name: Check dependency review scope and licence policy
+        run: node scripts/check-dependency-review-scope.mjs
 
   backend:
     needs: supply-chain-audit
@@ -156,6 +166,11 @@ jobs:
           node-version-file: .nvmrc
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
+      - name: Check migration timestamps are unique
+        # Runs before anything is installed or migrated: it is a pure filename check, and
+        # a collision makes the order of the migrations below depend on the alphabet
+        # rather than on the timestamp.
+        run: node scripts/check-migration-timestamps.mjs
       - name: Install dependencies
         run: npm ci
         working-directory: backend
@@ -180,6 +195,56 @@ jobs:
         env:
           DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
 
+      # Renaming a migration that a database has already applied is the one case an
+      # empty-schema run cannot cover, so it is simulated here. The recorded names are put
+      # back the way a deployed database has them, the order guard is shown to actually
+      # refuse, and the reconciliation step is then shown to repair it.
+      - name: Simulate a database that ran the pre-rename filenames
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          UPDATE pgmigrations
+             SET name = '1777000000007_unique-loan-status-events'
+           WHERE name = '1777000000008_unique-loan-status-events';
+          UPDATE pgmigrations
+             SET name = '1778000000008_transaction-submissions'
+           WHERE name = '1778000000009_transaction-submissions';
+          UPDATE pgmigrations
+             SET name = '1786000000016_webhook-max-attempts'
+           WHERE name = '1786000000017_webhook-max-attempts';
+          UPDATE pgmigrations
+             SET name = '1788000000018_unified-contract-events'
+           WHERE name = '1788000000019_unified-contract-events';
+          SQL
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
+
+      - name: Confirm the order guard refuses before reconciliation
+        run: |
+          # Asserted rather than assumed: if the guard did not fire, the reconciliation
+          # step below would look necessary when it was not, and a regression in the guard
+          # would go unnoticed.
+          if npm run migrate:up; then
+            echo "::error::expected node-pg-migrate to refuse a renamed migration, but it succeeded"
+            exit 1
+          fi
+          echo "node-pg-migrate refused the renamed migration, as expected."
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
+
+      - name: Reconcile renamed migrations
+        run: npm run migrate:reconcile
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
+
+      - name: Migrate up after reconciliation (must now succeed)
+        run: npm run migrate:up
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
+
   frontend:
     needs: supply-chain-audit
     # Observed ~81s: install, lint, typecheck, unit tests and a full `next build`.
@@ -198,6 +263,38 @@ jobs:
         working-directory: frontend
       - name: Lint
         run: npm run lint
+        working-directory: frontend
+      - name: Translation keys
+        run: npm run i18n:check
+        working-directory: frontend
+      - name: Verify the i18n check fails on a missing key
+        # A check that never fails is indistinguishable from a green step that reads nothing.
+        # Run it against a copy of the locales with one key removed and require a non-zero exit
+        # that names the key, so a broken matcher is caught here rather than in production.
+        run: |
+          scratch="$(mktemp -d)"
+          cp messages/*.json "$scratch/"
+          node -e "
+            const fs = require('fs');
+            const file = process.argv[1] + '/es.json';
+            const messages = JSON.parse(fs.readFileSync(file, 'utf8'));
+            delete messages.HomePage.title;
+            fs.writeFileSync(file, JSON.stringify(messages, null, 2));
+          " "$scratch"
+
+          if output="$(node scripts/check-i18n.mjs --messages-dir "$scratch" 2>&1)"; then
+            echo "The i18n check passed a locale with a missing key." >&2
+            echo "$output" >&2
+            exit 1
+          fi
+
+          if ! echo "$output" | grep -q "HomePage.title"; then
+            echo "The i18n check failed but did not name the missing key." >&2
+            echo "$output" >&2
+            exit 1
+          fi
+
+          rm -rf "$scratch"
         working-directory: frontend
       - name: Type check
         run: npm run typecheck
@@ -235,6 +332,15 @@ jobs:
         run: npm run typecheck
         working-directory: scripts
 
+      # Repo-wide policy checks that need only a checkout and node. Node is on the runner; none
+      # of these scripts have dependencies of their own.
+      #
+      # The quarantine ledger spans backend, frontend and contracts, so it cannot live in a job
+      # scoped to one workspace, and its whole value is that it fails on a pull request.
+      - name: Enforce the quarantine policy
+        run: node scripts/check-quarantine.mjs
+        working-directory: .
+
   packages:
     needs: supply-chain-audit
     timeout-minutes: 5
@@ -266,6 +372,12 @@ jobs:
       - name: Install SDK dependencies
         run: npm install
         working-directory: packages/sdk
+
+      - name: Check the SDK error-code union is current
+        # The SDK derives its error-code union from `backend/src/errors/errorCodes.ts`. This
+        # fails when a code is added or removed without regenerating, which is the only thing
+        # keeping the two from disagreeing about what a code is called.
+        run: node scripts/generate-sdk-error-codes.mjs --check
 
       - name: Type check SDK
         run: npm run typecheck
@@ -480,6 +592,16 @@ jobs:
       - name: Run unit tests
         run: cargo test -- --test-threads=1
         working-directory: contracts
+
+      # Runs here rather than in supply-chain-audit because it needs the cargo registry, which
+      # only exists once something has fetched. With it, the licence allowlist in
+      # dependency-review.yml is validated against the licences the crates actually declare —
+      # including the `Apache-2.0 WITH LLVM-exception` and `Unicode-3.0` expressions that no
+      # hand-written list would have predicted. Node is already on the runner; the script has no
+      # dependencies and needs no install.
+      - name: Check the licence policy covers the Rust dependency tree
+        run: node scripts/check-dependency-review-scope.mjs --cargo-registry "${CARGO_HOME:-$HOME/.cargo}/registry/src"
+
       - name: Build WASM contracts
         run: cargo build --workspace --target wasm32v1-none --release --exclude zizalend-integration-tests
         working-directory: contracts

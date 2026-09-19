@@ -319,7 +319,17 @@ export const getRetryDelayMs = (attemptNumber: number): number => {
 };
 
 export class WebhookService {
-  // Retry processor that polls for pending retries
+  /**
+   * Retry processor that polls for pending retries.
+   *
+   * Webhooks are not covered by user notification preferences and do not need to be: a
+   * subscription carries its own `is_active` switch and its own `event_types`, and it
+   * belongs to the deployment rather than to a user (there is no owner column). That
+   * switch is therefore the one this processor has to honour, and the join below filters
+   * on it — without that filter a deactivated subscription kept receiving every delivery
+   * that was already queued, so muting a webhook only stopped *new* events and left the
+   * backlog flowing.
+   */
   static async processRetries(): Promise<void> {
     logger.withContext().info('Starting webhook retry processor');
 
@@ -334,6 +344,10 @@ export class WebhookService {
            AND wd.next_retry_at IS NOT NULL
            AND wd.next_retry_at <= $1
            AND wd.attempt_count < $2
+           -- A deactivated subscription stops its queued retries as well as its new
+           -- events. Deliveries for a deleted subscription cannot appear here at all:
+           -- the foreign key cascades.
+           AND ws.is_active = true
          ORDER BY wd.next_retry_at ASC
          LIMIT 100`,
         [now, MAX_RETRY_ATTEMPTS],

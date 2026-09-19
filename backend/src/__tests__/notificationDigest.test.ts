@@ -30,6 +30,27 @@ const { notificationService } = await import('../services/notificationService.js
 
 const userId = 'GTESTUSER1111111111111111111111111111111111111111111111111';
 
+/**
+ * A row shaped the way the preference resolver reads it: the user's profile joined to an
+ * optional `user_notification_preferences` row.
+ *
+ * `prefsUserId` present means the user has a row in the newer table and it wins; absent
+ * means the `user_profiles` columns are used instead. The digest tests exercise both, and
+ * a user whose email is switched off here is a muted user.
+ */
+const preferenceRow = (overrides: Record<string, unknown> = {}) => ({
+  email: 'borrower@example.com',
+  phone: null,
+  email_enabled: true,
+  sms_enabled: false,
+  prefs_user_id: null,
+  prefs_email_enabled: null,
+  prefs_sms_enabled: null,
+  prefs_phone: null,
+  prefs_digest_frequency: null,
+  ...overrides,
+});
+
 beforeEach(() => {
   mockQuery.mockReset();
   jest.clearAllMocks();
@@ -42,7 +63,13 @@ afterAll(() => {
 describe('notification digest batching', () => {
   it('batches repayment notifications with digest mode off', async () => {
     mockQuery.mockResolvedValue({
-      rows: [{ digest_frequency: 'off' }],
+      rows: [
+        preferenceRow({
+          prefs_user_id: userId,
+          prefs_email_enabled: true,
+          prefs_digest_frequency: 'off',
+        }),
+      ],
     });
 
     const notifications = [
@@ -60,7 +87,13 @@ describe('notification digest batching', () => {
 
   it('batches repayment notifications with daily digest mode', async () => {
     mockQuery.mockResolvedValue({
-      rows: [{ digest_frequency: 'daily' }],
+      rows: [
+        preferenceRow({
+          prefs_user_id: userId,
+          prefs_email_enabled: true,
+          prefs_digest_frequency: 'daily',
+        }),
+      ],
     });
 
     const notifications = [
@@ -77,7 +110,13 @@ describe('notification digest batching', () => {
 
   it('batches repayment notifications with weekly digest mode', async () => {
     mockQuery.mockResolvedValue({
-      rows: [{ digest_frequency: 'weekly' }],
+      rows: [
+        preferenceRow({
+          prefs_user_id: userId,
+          prefs_email_enabled: true,
+          prefs_digest_frequency: 'weekly',
+        }),
+      ],
     });
 
     const notifications = [
@@ -98,9 +137,33 @@ describe('notification digest batching', () => {
     const user2 = 'GUSER2222222222222222222222222222222222222222222222222222';
 
     mockQuery
-      .mockResolvedValueOnce({ rows: [{ digest_frequency: 'daily' }] })
-      .mockResolvedValueOnce({ rows: [{ digest_frequency: 'weekly' }] })
-      .mockResolvedValueOnce({ rows: [{ digest_frequency: 'daily' }] });
+      .mockResolvedValueOnce({
+        rows: [
+          preferenceRow({
+            prefs_user_id: user1,
+            prefs_email_enabled: true,
+            prefs_digest_frequency: 'daily',
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          preferenceRow({
+            prefs_user_id: user2,
+            prefs_email_enabled: true,
+            prefs_digest_frequency: 'weekly',
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          preferenceRow({
+            prefs_user_id: user1,
+            prefs_email_enabled: true,
+            prefs_digest_frequency: 'daily',
+          }),
+        ],
+      });
 
     const notifications = [
       { userId: user1, message: 'Loan 1 due', loanId: 1 },
@@ -115,9 +178,11 @@ describe('notification digest batching', () => {
     expect(grouped.get(`${user2}:weekly`)).toHaveLength(1);
   });
 
-  it('defaults to off when digest_frequency is not set', async () => {
+  it('defaults to off when the user has no preferences row', async () => {
+    // A profile row exists, so the user is contactable, but nothing has recorded a digest
+    // frequency for them. Off is the documented default, which here means immediate.
     mockQuery.mockResolvedValue({
-      rows: [],
+      rows: [preferenceRow()],
     });
 
     const notifications = [{ userId, message: 'Loan 1 due', loanId: 1 }];
@@ -125,5 +190,66 @@ describe('notification digest batching', () => {
     const grouped = await notificationService.batchRepaymentNotificationsForDigest(notifications);
 
     expect(grouped.has(`${userId}:immediate`)).toBe(true);
+  });
+
+  it('does not queue a user who has muted email', async () => {
+    // The mute is recorded in the newer table and wins over the profile columns, which
+    // still say email is on. A digest is delivered by email, so there is nothing to build.
+    mockQuery.mockResolvedValue({
+      rows: [
+        preferenceRow({
+          prefs_user_id: userId,
+          prefs_email_enabled: false,
+          prefs_digest_frequency: 'daily',
+        }),
+      ],
+    });
+
+    const notifications = [
+      { userId, message: 'Loan 1 due', loanId: 1 },
+      { userId, message: 'Loan 2 due', loanId: 2 },
+    ];
+
+    const grouped = await notificationService.batchRepaymentNotificationsForDigest(notifications);
+
+    expect(grouped.size).toBe(0);
+    expect(grouped.has(`${userId}:daily`)).toBe(false);
+    expect(grouped.has(`${userId}:immediate`)).toBe(false);
+  });
+
+  it('does not queue a user whose email is disabled in their profile', async () => {
+    mockQuery.mockResolvedValue({
+      rows: [preferenceRow({ email_enabled: false })],
+    });
+
+    const notifications = [{ userId, message: 'Loan 1 due', loanId: 1 }];
+
+    const grouped = await notificationService.batchRepaymentNotificationsForDigest(notifications);
+
+    expect(grouped.size).toBe(0);
+  });
+
+  it('does not queue a user who has no email address on file', async () => {
+    // The switch is on but there is nowhere to send it, which the gate treats the same
+    // way as a mute: an enabled channel with no address is not a deliverable channel.
+    mockQuery.mockResolvedValue({
+      rows: [preferenceRow({ email: null })],
+    });
+
+    const notifications = [{ userId, message: 'Loan 1 due', loanId: 1 }];
+
+    const grouped = await notificationService.batchRepaymentNotificationsForDigest(notifications);
+
+    expect(grouped.size).toBe(0);
+  });
+
+  it('does not queue a user who has no profile row at all', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const notifications = [{ userId, message: 'Loan 1 due', loanId: 1 }];
+
+    const grouped = await notificationService.batchRepaymentNotificationsForDigest(notifications);
+
+    expect(grouped.size).toBe(0);
   });
 });
