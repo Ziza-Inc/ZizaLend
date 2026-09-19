@@ -148,6 +148,37 @@ describe('WebhookRetryProcessor', () => {
     });
   });
 
+  // Webhooks are not governed by user notification preferences: a subscription has no
+  // owner column, and it carries its own `is_active` switch alongside its own
+  // `event_types`. That switch is the mute, and it has to stop queued retries as well as
+  // new events — the join to `webhook_subscriptions` selected nothing from the
+  // subscription, so deactivating one left every delivery already queued still flowing.
+  describe('inactive subscriptions', () => {
+    it('filters the retry selection on is_active', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await WebhookService.processRetries();
+
+      const sql = (mockQuery.mock.calls[0]?.[0] ?? '') as string;
+      // The join must still exist — it is what makes the filter expressible — and it must
+      // actually filter, or a deactivated subscription keeps receiving its backlog.
+      expect(sql).toMatch(/JOIN webhook_subscriptions\s+ws/);
+      expect(sql.replace(/\s+/g, ' ')).toContain('ws.is_active = true');
+    });
+
+    it('delivers nothing when no subscription is active', async () => {
+      // The filter is in the database, so an inactive subscription produces no candidate
+      // rows at all and no HTTP request is made.
+      const fetchMock = jest.fn<() => Promise<unknown>>();
+      global.fetch = fetchMock as unknown as typeof global.fetch;
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await WebhookService.processRetries();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('circuit-breaker behavior (max attempts)', () => {
     it('permanently fails delivery after max retry attempts', async () => {
       const fetchMock = jest.fn(async () => ({

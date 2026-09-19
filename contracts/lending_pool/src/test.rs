@@ -2011,3 +2011,114 @@ fn test_multiple_depositors_share_yield_proportionally_and_total_shares_track_co
     assert_eq!(token_client.balance(&pool_id), 1);
     assert_eq!(pool_client.get_total_shares(&token_id), 0);
 }
+
+// ── adjust_outstanding: authorisation and bounds ──────────────────────────────
+//
+// `adjust_outstanding` is the net-delta form of `disburse`/`settle_outstanding` and
+// the only writer of the outstanding counter that is not also a token transfer.
+// Exactly one caller may drive it: the LoanManager recorded by `set_loan_manager`.
+// These tests pin both refusals -- the host-level authorisation failure, which
+// cannot be a typed error because `require_auth` traps rather than returns, and the
+// typed `LoanManagerNotSet` when nothing has been configured -- plus the arithmetic
+// bounds that used to escape as an untyped panic.
+
+#[test]
+fn test_adjust_outstanding_reports_unset_loan_manager_as_a_typed_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, _stellar, _) = create_token_contract(&env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+
+    // Nothing has been configured to authorise against. This must be a decodable
+    // code rather than the panic it used to raise, so a caller can tell "not wired
+    // up yet" apart from "not authorised".
+    assert_eq!(
+        pool_client.try_adjust_outstanding(&token_id, &1_000),
+        Err(Ok(PoolError::LoanManagerNotSet))
+    );
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 0);
+}
+
+#[test]
+#[should_panic]
+fn test_adjust_outstanding_refuses_a_caller_that_is_not_the_loan_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, _stellar, _) = create_token_contract(&env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.set_loan_manager(&Address::generate(&env));
+
+    // Enforce require_auth() natively: no mocked authorisation covers the configured
+    // LoanManager, so an arbitrary caller must be refused.
+    env.mock_auths(&[]);
+    pool_client.adjust_outstanding(&token_id, &1_000);
+}
+
+#[test]
+fn test_adjust_outstanding_moves_the_counter_for_the_loan_manager() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, _stellar, _) = create_token_contract(&env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.set_loan_manager(&Address::generate(&env));
+
+    pool_client.adjust_outstanding(&token_id, &4_000);
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 4_000);
+    // The counter feeds the pool's derived utilization, which is what a lender
+    // reads. Nothing has been deposited in this fixture, so every unit of the
+    // pool's assets is deployed and utilization is at its 100 % ceiling.
+    let stats = pool_client.get_pool_stats(&token_id);
+    assert_eq!(stats.pool_token_balance, 0);
+    assert_eq!(stats.utilization_bps, 10_000);
+
+    // Net-delta: retiring principal is the same call with the sign flipped.
+    pool_client.adjust_outstanding(&token_id, &-4_000);
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 0);
+
+    // A zero delta is a no-op rather than an error or a pointless write.
+    pool_client.adjust_outstanding(&token_id, &0);
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 0);
+}
+
+#[test]
+fn test_adjust_outstanding_bounds_are_typed_errors_that_leave_the_counter_alone() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (token_id, _stellar, _) = create_token_contract(&env, &admin);
+    let pool_id = env.register(LendingPool, ());
+    let pool_client = LendingPoolClient::new(&env, &pool_id);
+    pool_client.initialize(&admin);
+    pool_client.set_loan_manager(&Address::generate(&env));
+
+    // Below zero: retiring more principal than was ever deployed.
+    assert_eq!(
+        pool_client.try_adjust_outstanding(&token_id, &-1),
+        Err(Ok(PoolError::OutstandingUnderflow))
+    );
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 0);
+
+    // Above i128::MAX: the addition is checked, and the refusal is a declared code
+    // rather than the arithmetic panic it used to escape as.
+    pool_client.adjust_outstanding(&token_id, &i128::MAX);
+    assert_eq!(pool_client.get_total_outstanding(&token_id), i128::MAX);
+    assert_eq!(
+        pool_client.try_adjust_outstanding(&token_id, &1),
+        Err(Ok(PoolError::OutstandingOverflow))
+    );
+    // A refused adjustment must not have written anything.
+    assert_eq!(pool_client.get_total_outstanding(&token_id), i128::MAX);
+}

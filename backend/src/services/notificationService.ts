@@ -44,6 +44,114 @@ export interface NotificationPreferences {
   digestFrequency?: 'off' | 'daily' | 'weekly';
 }
 
+/**
+ * The channels a notification can leave the system on.
+ *
+ * `in_app` is deliberately not switchable. The `notifications` row and its SSE push are
+ * the record of what the system decided to tell the user, so suppressing them would
+ * lose the audit trail and the inbox along with the mute. Muting therefore means "stop
+ * contacting me off-platform", which is exactly what the switches on
+ * `/notifications/preferences` say.
+ */
+export type NotificationChannel = 'in_app' | 'email' | 'sms';
+
+/** Types that also warrant an SMS, because they are time-critical. */
+const SMS_ELIGIBLE_TYPES: ReadonlySet<NotificationType> = new Set([
+  'repayment_due',
+  'loan_defaulted',
+  'loan_liquidated',
+]);
+
+interface ResolvedPreferences {
+  email: string | null;
+  phone: string | null;
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  digestFrequency: 'off' | 'daily' | 'weekly';
+  /** Which table the answer came from. Recorded so the precedence rule is observable. */
+  source: 'user_notification_preferences' | 'user_profiles';
+}
+
+/**
+ * The single place both preference tables are read.
+ *
+ * Two tables carry these switches: `user_profiles`, which the preferences API has always
+ * written, and `user_notification_preferences`, which additionally owns
+ * `digest_frequency`. Reading one table on the email path and the other on the digest
+ * path is what let a mute apply to the channel that remembered to check and not to the
+ * one that forgot, so both are read here, once, under one stated rule:
+ *
+ *   a row in `user_notification_preferences` wins; otherwise the `user_profiles`
+ *   columns are used.
+ *
+ * Nothing writes the newer table yet, so no existing account changes behaviour — but the
+ * moment one does, there is exactly one reader to keep consistent rather than several.
+ *
+ * Returns `null` when the user has no profile at all, which callers treat as "nothing to
+ * send to" rather than as "defaults apply".
+ */
+async function resolveNotificationPreferences(userId: string): Promise<ResolvedPreferences | null> {
+  const result = await query(
+    `SELECT
+       p.email,
+       p.phone,
+       p.email_enabled,
+       p.sms_enabled,
+       n.user_id           AS prefs_user_id,
+       n.email_enabled     AS prefs_email_enabled,
+       n.sms_enabled       AS prefs_sms_enabled,
+       n.phone             AS prefs_phone,
+       n.digest_frequency  AS prefs_digest_frequency
+     FROM user_profiles p
+     LEFT JOIN user_notification_preferences n ON n.user_id = p.public_key
+     WHERE p.public_key = $1
+     LIMIT 1`,
+    [userId],
+  );
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  // The join is a LEFT JOIN, so these are null rather than missing when the user has no
+  // row in the newer table. That absence is the fallback signal.
+  const hasPreferencesRow = row.prefs_user_id != null;
+
+  return {
+    email: (row.email as string | null) ?? null,
+    phone: hasPreferencesRow
+      ? ((row.prefs_phone as string | null) ?? (row.phone as string | null) ?? null)
+      : ((row.phone as string | null) ?? null),
+    emailEnabled: hasPreferencesRow ? Boolean(row.prefs_email_enabled) : Boolean(row.email_enabled),
+    smsEnabled: hasPreferencesRow ? Boolean(row.prefs_sms_enabled) : Boolean(row.sms_enabled),
+    digestFrequency: hasPreferencesRow
+      ? ((row.prefs_digest_frequency as 'off' | 'daily' | 'weekly' | null) ?? 'off')
+      : 'off',
+    source: hasPreferencesRow ? 'user_notification_preferences' : 'user_profiles',
+  };
+}
+
+/**
+ * The only decision point for whether a user may be contacted on a channel.
+ *
+ * Every dispatch path asks this and nothing else, so a path added later inherits the
+ * check by construction instead of by remembering to copy it. A switch alone is not
+ * enough: the address it would be sent to has to exist as well.
+ */
+function shouldDispatch(
+  prefs: ResolvedPreferences,
+  channel: NotificationChannel,
+  type: NotificationType,
+): boolean {
+  switch (channel) {
+    case 'in_app':
+      return true;
+    case 'email':
+      return prefs.emailEnabled && prefs.email !== null;
+    case 'sms':
+      return prefs.smsEnabled && prefs.phone !== null && SMS_ELIGIBLE_TYPES.has(type);
+  }
+}
+
 // ─── SSE subscriber registry ──────────────────────────────────────────────────
 // Maps userId → set of SSE response streams currently listening.
 // No persistence needed — streams are in-process only.
@@ -172,15 +280,12 @@ async function sendSMS(phone: string, message: string) {
 
 class NotificationService {
   async getNotificationPreferences(userId: string): Promise<NotificationPreferences> {
-    const result = await query(
-      `SELECT email_enabled, sms_enabled, phone
-       FROM user_profiles
-       WHERE public_key = $1
-       LIMIT 1`,
-      [userId],
-    );
+    // Read through the same resolver every dispatch path uses, so the switches this API
+    // reports and the switches that decide whether an email actually goes out cannot
+    // disagree about what the user asked for.
+    const prefs = await resolveNotificationPreferences(userId);
 
-    if (result.rows.length === 0) {
+    if (!prefs) {
       return {
         emailEnabled: false,
         smsEnabled: false,
@@ -189,11 +294,10 @@ class NotificationService {
       };
     }
 
-    const row = result.rows[0];
     return {
-      emailEnabled: Boolean(row.email_enabled),
-      smsEnabled: Boolean(row.sms_enabled),
-      phone: (row.phone as string | null) ?? null,
+      emailEnabled: prefs.emailEnabled,
+      smsEnabled: prefs.smsEnabled,
+      phone: prefs.phone,
       perTypeOverrides: {},
     };
   }
@@ -261,12 +365,17 @@ class NotificationService {
     const grouped = new Map<string, Array<{ userId: string; message: string; loanId?: number }>>();
 
     for (const notif of notifications) {
-      const prefResult = await query(
-        `SELECT digest_frequency FROM user_notification_preferences WHERE user_id = $1`,
-        [notif.userId],
-      );
+      const prefs = await resolveNotificationPreferences(notif.userId);
 
-      const digestFrequency = prefResult.rows[0]?.digest_frequency ?? 'off';
+      // A digest exists to be emailed, so muting email has to remove the user from the
+      // batch rather than merely change how the batch is labelled. Skipped here, at the
+      // point the batch is built, so no later step can deliver to a muted user by
+      // forgetting to check.
+      if (!prefs || prefs.email === null || !shouldDispatch(prefs, 'email', 'repayment_due')) {
+        continue;
+      }
+
+      const digestFrequency = prefs.digestFrequency;
 
       if (digestFrequency === 'off') {
         // Send immediately
@@ -290,31 +399,25 @@ class NotificationService {
 
   /**
    * Sends external notifications (Email/SMS) based on user preferences.
-   * SMS is triggered for repayment_due and loan_defaulted events.
+   *
+   * This is the only path from a notification to an outbound email or SMS, and both
+   * decisions are taken by `shouldDispatch` rather than by a condition written here. SMS
+   * is additionally restricted to the time-critical types by that gate.
    */
   private async notifyUserExternal(userId: string, message: string, type: NotificationType) {
     try {
-      const result = await query(
-        `SELECT email, phone, email_enabled, sms_enabled 
-         FROM user_profiles 
-         WHERE public_key = $1`,
-        [userId],
-      );
+      const prefs = await resolveNotificationPreferences(userId);
 
-      if (result.rows.length === 0) return;
+      // No profile row: there is no address to send to and no stated preference, so the
+      // in-app record is the whole delivery.
+      if (!prefs) return;
 
-      const user = result.rows[0];
-
-      if (user.email_enabled && user.email) {
-        await sendEmail(user.email, message, type);
+      if (shouldDispatch(prefs, 'email', type) && prefs.email !== null) {
+        await sendEmail(prefs.email, message, type);
       }
 
-      // Trigger SMS for critical events: repayment_due, loan_defaulted, and loan_liquidated
-      const smsEnabledForType =
-        type === 'repayment_due' || type === 'loan_defaulted' || type === 'loan_liquidated';
-
-      if (user.sms_enabled && user.phone && smsEnabledForType) {
-        await sendSMS(user.phone, message);
+      if (shouldDispatch(prefs, 'sms', type) && prefs.phone !== null) {
+        await sendSMS(prefs.phone, message);
       }
     } catch (error) {
       logger.withContext().error('Error sending external notifications', { userId, error });
@@ -433,6 +536,15 @@ class NotificationService {
    * 1. Email to ADMIN_EMAIL (if configured)
    * 2. In-app SSE push to each admin wallet currently subscribed
    * 3. Webhook POST to ADMIN_WEBHOOK_URL (if configured)
+   */
+  /**
+   * Routes an operational alert to the operator channels.
+   *
+   * Deliberately outside the user-preference gate: `ADMIN_EMAIL`, `ADMIN_WALLETS`, and
+   * `ADMIN_WEBHOOK_URL` are deployment configuration for staff who are on call, not a
+   * user's notification choices, and a mute on a wallet must not be able to silence a
+   * default alert to the operators. The list of recipients comes from the environment for
+   * the same reason — it is not user data.
    */
   async notifyAdmins(params: { title: string; message: string; loanId?: number }): Promise<void> {
     const { title, message, loanId } = params;

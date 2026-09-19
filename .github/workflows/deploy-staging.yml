@@ -239,6 +239,13 @@ jobs:
               exit 1
             fi
 
+            # Re-record migrations that were renamed after this database last ran them.
+            # This has to precede `up`: node-pg-migrate refuses to run when a migration it
+            # has not seen sorts before one it has already applied, so a rename cannot be
+            # recovered from by the migration run itself. Idempotent and a no-op once
+            # reconciled, so it is safe on every deploy.
+            docker-compose -f docker-compose.yml -f docker-compose.staging.resolved.yml run --rm backend node scripts/reconcile-migration-names.mjs
+
             # Run migrations (must succeed)
             docker-compose -f docker-compose.yml -f docker-compose.staging.resolved.yml run --rm backend node node_modules/node-pg-migrate/bin/node-pg-migrate.js up
 

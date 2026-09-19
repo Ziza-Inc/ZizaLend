@@ -55,6 +55,27 @@ export default [
     },
   },
 
+  // Override: operations scripts
+  //
+  // These are Node CLI entry points run with `node scripts/<name>.mjs`, not modules the
+  // server imports, so they print to stdout and read process.env. `js.configs.recommended`
+  // has no Node globals, which is why they are declared here rather than by ignoring the
+  // directory: a script that runs against a deployed database is worth linting.
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
   // Override: test files
   {
     files: ['**/*.test.ts', '**/*.spec.ts', 'src/tests/**/*.ts', 'src/**/__tests__/**/*.ts'],

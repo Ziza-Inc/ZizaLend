@@ -51,7 +51,10 @@
     "description": "Ver todas tus solicitudes de préstamo, remesas y transacciones en un solo lugar.",
     "notConnected": "Cartera no conectada",
     "connectWalletToViewActivity": "Conecte su cartera para ver su historial de actividad.",
-    "emptyState": "Sin actividad aún. Sus transacciones aparecerán aquí.",
+    "emptyState": {
+      "title": "Sin actividad aún",
+      "description": "Sus transacciones aparecerán aquí."
+    },
     "filters": {
       "all": "Toda la actividad",
       "loan": "Préstamos",

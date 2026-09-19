@@ -12,7 +12,11 @@
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "generate:types": "npm run generate -w packages/types",
-    "generate:spec": "node scripts/dump-swagger.mjs > packages/openapi.json"
+    "generate:error-codes": "node scripts/generate-sdk-error-codes.mjs",
+    "generate:spec": "node scripts/dump-swagger.mjs > packages/openapi.json",
+    "check:dependency-review-scope": "node scripts/check-dependency-review-scope.mjs",
+    "check:migration-timestamps": "node scripts/check-migration-timestamps.mjs",
+    "check:quarantine": "node scripts/check-quarantine.mjs"
   },
   "engines": {
     "node": ">=18"
