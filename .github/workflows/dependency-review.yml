@@ -4,12 +4,21 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  # The review is computed from the pull request's own diff, so a superseded run's verdict is
+  # about a revision nobody is looking at any more. There is no default-branch run to protect.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
   dependency-review:
+    # Observed ~15s. The action compares manifests in the pull request diff; the budget covers
+    # a cold API and its retry-on-snapshot-warnings behaviour.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

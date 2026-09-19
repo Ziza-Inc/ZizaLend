@@ -6,9 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  # One run per workflow per ref. Pushing three times in a minute used to start three full CI
+  # runs of which only the last mattered, and the two dead runs held runners and left the pull
+  # request showing a mixture of stale and current check results.
+  #
+  # Never cancel on the default branch: a cancelled run there reports no result for the jobs it
+  # was holding, and a required check that never reports blocks the merge it was protecting.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
 jobs:
   supply-chain-audit:
-    timeout-minutes: 3
+    # Observed ~6s. The step is a few greps over four lockfiles.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +42,8 @@ jobs:
 
   backend:
     needs: supply-chain-audit
+    # Observed ~84s across install, the Postgres/Redis services, migrations and 598 tests.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -100,6 +113,8 @@ jobs:
           FRONTEND_URL: https://frontend.example.com
 
   migration-paths:
+    # Observed ~7s. Only lists changed paths; it never installs anything.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     outputs:
       migrations: ${{ steps.filter.outputs.migrations }}
@@ -116,6 +131,8 @@ jobs:
   migration-check:
     needs: [supply-chain-audit, migration-paths]
     if: github.event_name == 'push' || needs.migration-paths.outputs.migrations == 'true'
+    # Observed ~45s: migrate up, roll every migration back one at a time, then migrate up again.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -165,6 +182,8 @@ jobs:
 
   frontend:
     needs: supply-chain-audit
+    # Observed ~81s: install, lint, typecheck, unit tests and a full `next build`.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +213,8 @@ jobs:
 
   scripts-typecheck:
     needs: supply-chain-audit
+    # Observed ~13s. Typecheck only.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
 
     steps:
@@ -256,7 +277,9 @@ jobs:
 
   backend-format:
     needs: supply-chain-audit
-    timeout-minutes: 3
+    # Observed ~19s. Raised from 3 minutes so the value sits above the observed duration
+    # rather than a hair below it.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -277,7 +300,8 @@ jobs:
         working-directory: backend
 
   shell-check:
-    timeout-minutes: 1
+    # Observed ~6s. `bash -n` over every script.
+    timeout-minutes: 3
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -289,7 +313,8 @@ jobs:
           echo "All shell scripts pass syntax check."
 
   conflict-check:
-    timeout-minutes: 1
+    # Observed ~5s. One recursive grep.
+    timeout-minutes: 3
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -332,10 +357,35 @@ jobs:
             console.log('OpenAPI spec is valid (' + spec.openapi + '): ' + spec.info.title);
           "
 
-  e2e:
-    needs: [supply-chain-audit, frontend]
+  # `github.event.pull_request.changed_files` is a count on the REST API response, not a field
+  # of the pull request webhook payload, so the condition the `e2e` job used to carry evaluated
+  # against nothing and skipped end-to-end tests on every pull request that touched the frontend.
+  # A path filter is the supported way to ask "did this change touch the frontend?", and is the
+  # same shape `migration-paths` already uses.
+  frontend-paths:
+    # Observed ~5s. Lists changed paths; it never installs anything.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || contains(github.event.pull_request.changed_files, 'frontend/')
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  e2e:
+    needs: [supply-chain-audit, frontend, frontend-paths]
+    # Observed ~75s: install, the chromium browser download, then the chromium project.
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    # Pushes to the default branch always run this; a pull request only when it touches the
+    # frontend. The filter result is empty for non-pull-request events, hence the guard.
+    if: github.event_name == 'push' || needs.frontend-paths.outputs.frontend == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js 22
@@ -365,6 +415,8 @@ jobs:
           retention-days: 7
 
   env-docs-check:
+    # Observed ~8s. Node-only, no install step.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -381,7 +433,8 @@ jobs:
     # frontmatter field, a duplicate backlog id, and a duplicate title. It needs no
     # token, because it never talks to the API.
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # Observed ~7s. Raised from 3 minutes so the value sits above the observed duration.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js 22
@@ -394,6 +447,10 @@ jobs:
         run: node scripts/publish-issues.mjs --validate-only --check-index
 
   contracts:
+    # Observed ~345s: fmt, clippy over all targets, the unit tests, a release wasm build,
+    # the size budgets and a coverage run. This is the one job that genuinely needs a
+    # generous budget, so it gets one with room for a cold dependency cache.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

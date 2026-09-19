@@ -21,8 +21,8 @@
  */
 
 import { Client } from './client.js';
-export { Client, ApiError } from './client.js';
-export type { ClientConfig, ApiResponse } from './client.js';
+export { Client, ApiError, RequestDeadlineExceededError, parseRetryAfterMs } from './client.js';
+export type { ClientConfig, ApiResponse, ResponseHeadersLike } from './client.js';
 
 // ClientConfig is used as a constructor parameter type in the Zizalend class.
 // With isolatedModules, the type-only export above doesn't create a local binding,
@@ -30,7 +30,7 @@ export type { ClientConfig, ApiResponse } from './client.js';
 type _ClientConfig = import('./client.js').ClientConfig;
 
 import { Auth } from './auth.js';
-export { Auth } from './auth.js';
+export { Auth, readTokenExpiryMs, TOKEN_EXPIRY_SKEW_MS } from './auth.js';
 export type { ChallengeMessage, LoginData, VerifyData } from './auth.js';
 
 import { Health } from './health.js';
@@ -100,9 +100,20 @@ export type {
 } from './transactions.js';
 
 import { Events } from './events.js';
-export { Events } from './events.js';
+export {
+  Events,
+  CANONICAL_EVENT_TYPES,
+  LEGACY_EVENT_TYPE_ALIASES,
+  isKnownLoanEventRecord,
+  isLoanEventType,
+} from './events.js';
 export type {
   LoanEventRecord,
+  LoanEventRecordBase,
+  LoanEventPayloads,
+  LoanEventType,
+  KnownLoanEventRecord,
+  UnrecognisedLoanEventRecord,
   PaginatedEventsResponse,
   EventStreamStatusResponse,
 } from './events.js';
