@@ -1,7 +1,9 @@
 <div align="center">
-  <img src="https://img.shields.io/badge/Zizalend-DeFi%20Lending-7C3AED?style=for-the-badge&logo=stellar&labelColor=0D0D12" alt="Zizalend" />
+  <img src="https://img.shields.io/badge/ZizaLend-DeFi%20Lending-7C3AED?style=for-the-badge&logo=stellar&labelColor=0D0D12" alt="ZizaLend" />
 
   <h3><strong>Every transfer builds your future</strong></h3>
+
+  <p>Portable, verifiable credit for people the banking system never scored.</p>
 
   <!-- CI / Quality Gates + License -->
 
@@ -20,7 +22,8 @@
   <img src="https://img.shields.io/badge/contract_tests-344_passing-2EA043?style=flat-square&logo=rust" alt="344 contract tests passing" />
   <a href="docs/GAS.md"><img src="https://img.shields.io/badge/contract_coverage-89%25-2EA043?style=flat-square&logo=codecov" alt="Contract coverage: 89%" /></a>
   <a href="https://codecov.io/gh/Ziza-Inc/ZizaLend"><img src="https://codecov.io/gh/Ziza-Inc/ZizaLend/branch/main/graph/badge.svg?flag=contracts" alt="Codecov" /></a>
-  <img src="https://img.shields.io/badge/backend_tests-530_passing-2EA043?style=flat-square&logo=jest" alt="530 backend tests passing" />
+  <img src="https://img.shields.io/badge/backend_tests-565_passing-2EA043?style=flat-square&logo=jest" alt="565 backend tests passing" />
+  <img src="https://img.shields.io/badge/frontend_tests-201_passing-2EA043?style=flat-square&logo=jest" alt="201 frontend unit tests passing" />
   <img src="https://img.shields.io/badge/smoke_test-8%2F8_on_Testnet-2EA043?style=flat-square&logo=stellar" alt="End-to-end smoke test passing on Testnet" />
   <a href="docs/contracts-ACCESS-CONTROL.md"><img src="https://img.shields.io/badge/governance-3--of--N_multisig-7C3AED?style=flat-square" alt="Multisig governance" /></a>
   <a href="https://youtu.be/2ZST7YiZ1Uk"><img src="https://img.shields.io/badge/pitch_video-watch_on_YouTube-FF0000?style=flat-square&logo=youtube&labelColor=0D0D12" alt="Watch the four-minute pitch video on YouTube" /></a>
@@ -41,7 +44,7 @@
   <img src="https://img.shields.io/badge/Conventional_Commits-1.0.0-fe5196?style=flat-square&logo=conventionalcommits" alt="Conventional Commits" />
 
 <br/><br/>
-<strong><a href="ARCHITECTURE.md">Architecture</a> • <a href="docs/DEVELOPMENT.md">Development</a> • <a href="docs/TESTING.md">Testing</a> • <a href="docs/wiki/README.md">Wiki</a> • <a href="CONTRIBUTING.md">Contributing</a> • <a href="SECURITY.md">Security</a> • <a href="ROADMAP.md">Roadmap</a></strong>
+<strong><a href="#-overview">Overview</a> • <a href="#-live-on-testnet">Testnet</a> • <a href="#-pitch-video">Video</a> • <a href="ARCHITECTURE.md">Architecture</a> • <a href="docs/DEVELOPMENT.md">Development</a> • <a href="docs/TESTING.md">Testing</a> • <a href="docs/wiki/README.md">Wiki</a> • <a href="CONTRIBUTING.md">Contributing</a> • <a href="SECURITY.md">Security</a> • <a href="ROADMAP.md">Roadmap</a></strong>
 </div>
 
 ---
@@ -53,45 +56,57 @@
 - [Pitch Video](#-pitch-video)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
+  - [Smart Contracts](#-smart-contracts)
+  - [Backend Services](#-backend-services)
+  - [Frontend](#-frontend)
+  - [TypeScript SDK](#-typescript-sdk)
+  - [Stellar Integration](#-stellar-integration)
+- [Performance & Gas](#-performance--gas)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
-- [Documentation](#-documentation)
+- [Configuration](#-configuration)
+- [API](#-api)
 - [Testing](#-testing)
 - [Security](#-security)
+- [Operations & Monitoring](#-operations--monitoring)
+- [CI/CD & Deployment](#-cicd--deployment)
+- [Documentation](#-documentation)
 - [Contributing](#-contributing)
 - [Project Structure](#-project-structure)
+- [Project Stats](#-project-stats)
+- [Roadmap](#-roadmap)
+- [License](#-license)
 
 ---
 
 ## 🌍 Overview
 
-**Zizalend** gives the world's 280 million migrant workers something traditional finance never could: **a credit score they can take anywhere.**
+**ZizaLend turns remittance history into portable credit.** Around 280 million migrant workers send money home every month, and traditional finance scores none of it. The transfer is the proof of reliability; the credit bureau never sees it. ZizaLend captures that proof on the Stellar blockchain, turns it into a verifiable on-chain credit identity, and opens access to fair, collateralized loans — no bureau, no branch visit, no discrimination based on where you were born.
 
-Every remittance you send home is proof of your reliability. Zizalend captures that proof on the Stellar blockchain, turns it into a verifiable on-chain credit identity, and unlocks access to fair, collateralized loans — no credit bureau, no bank branch, no discrimination. Just the financial reputation you've already earned.
-
-Lenders provide liquidity to transparent, on-chain pools and earn real yield backed by real repayment history. Not algorithms. Not guesswork. **Real people. Real trust. Real returns.**
+Borrowers build a score (300–850) from real repayment behaviour and mint a **Remittance NFT** that carries it between applications and platforms. Lenders supply liquidity to transparent on-chain pools and earn yield backed by that same repayment history rather than by an underwriter's guess.
 
 ```mermaid
 flowchart LR
-    B["👤 Migrant Worker"] -->|"Sends Remittances"| R["📊 Credit Score"]
+    B["👤 Migrant Worker"] -->|"Sends remittances"| R["📊 Credit Score"]
     R -->|"Mints"| N["🪪 Remittance NFT"]
-    N -->|"Locks as"| C["Collateral"]
-    C -->|"Access"| L["🏦 Loan from Pool"]
+    N -->|"Locked as"| C["Collateral"]
+    C -->|"Unlocks"| L["🏦 Loan from Pool"]
     L -->|"Funded by"| P["💰 Lenders"]
     P -->|"Earn"| Y["📈 Yield"]
+    L -->|"Repayment history"| R
 ```
 
-> 💡 **Why Stellar?** Stellar's sub-second finality, near-zero fees (< $0.001), and built-in remittance corridors make it the ideal chain for real-world financial inclusion.
+> 💡 **Why Stellar?** Sub-second finality, fees under a cent, a native asset that needs no bridge, and a Soroban runtime capable of expressing the whole loan lifecycle in four auditable contracts. For remittance corridors — where a $200 transfer can otherwise lose 6% to fees — the cost profile is not a detail, it is the product.
+
+**What makes this infrastructure rather than a demo:** four deployed and mutually wired contracts, a typed API with a generated OpenAPI spec and SDK, an event-sourced indexer that keeps off-chain state honest, 1,110 automated tests behind 13 required status checks, measured gas costs, and 120 open issues already specced for contributors.
 
 ---
 
 ## 🌐 Live on Testnet
 
-**Application:** <https://zizalend.vercel.app> — the deployed frontend, built against the
-Testnet contracts below. Connect a Freighter wallet on Testnet to use it.
+**Application:** <https://zizalend.vercel.app> — the production frontend, built against the contracts below. Connect a Freighter wallet on Testnet to use it.
 
-All four contracts are deployed to Stellar Testnet, initialised, wired, and verified by an
-end-to-end test that runs the real user journey against the live addresses.
+All four contracts are deployed to Stellar Testnet, initialised, wired to each other, and verified by an end-to-end test that runs the real user journey against the live addresses.
 
 | Contract | Address |
 |---|---|
@@ -110,10 +125,7 @@ cd scripts && SECRET_KEY=<admin secret> npx ts-node smoke-testnet.ts testnet
 ✅ wiring · deposit · withdrawal guard · credit identity · loan approval · repayment · score credited · withdrawal
 ```
 
-Two claims are deliberately separated, because they are different claims. `deploy.ts` proves
-the contracts *exist and are wired*. `smoke-testnet.ts` proves the protocol *works* — deposit,
-request, approve, repay, score credited, withdrawal. A deployment that passes only the first
-is a set of addresses, not a working system.
+Two claims are deliberately kept separate, because they are different claims. `deploy.ts` proves the contracts *exist and are wired*. `smoke-testnet.ts` proves the protocol *works* — a fresh lender deposits, a borrower requests, the loan is approved, repaid, the score is credited, and both parties withdraw. A deployment that passes only the first is a set of addresses, not a working system. `.github/workflows/ci.yml` gates the WASM size budget on every PR, and the same scripts run in CI so the deployment path cannot rot.
 
 ---
 
@@ -125,22 +137,14 @@ is a set of addresses, not a working system.
 
 ### ▶️ [**Watch the four-minute pitch on YouTube**](https://youtu.be/2ZST7YiZ1Uk)
 
-Four minutes covering the problem, the protocol, the four deployed contracts, the live
-application, the measured performance, and what makes this infrastructure rather than a
-finished demo.
+Four minutes covering the problem, the protocol, the four deployed contracts, the live application, the measured performance, and what makes this infrastructure rather than a finished demo.
 
 Published as *The ZizaLend Advantage: Portable Credit for All*. The same cut is committed at
 [`docs/media/zizalend-pitch.mp4`](docs/media/zizalend-pitch.mp4) (1920×1080, 4:34, ~25 MB) for
 anyone who wants the file rather than the stream. It is generated, not hand-edited, so
 re-running the pipeline below is what keeps it honest.
 
-The video is **built from the repository, not written about it**. `scripts/video/build.mjs`
-captures its footage from the deployed application and from GitHub, narrates the script in
-`scenes.mjs` with a neural voice, composes the frames with ffmpeg, and then
-**verifies every number it states against the repository** — the workflow count, the error
-codes, the coverage gate, the open-issue count, and the contract count are all looked up and
-compared before the file is allowed to publish. A claim that no longer holds fails the build
-with the exact edit to make.
+The video is **built from the repository, not written about it**. `scripts/video/build.mjs` captures its footage from the deployed application and from GitHub, narrates the script in `scenes.mjs` with a neural voice, composes the frames with ffmpeg, and then **verifies every number it states against the repository** — the workflow count, the error codes, the coverage gate, the open-issue count, and the contract count are all looked up and compared before the file is allowed to publish. A claim that no longer holds fails the build with the exact edit to make.
 
 ```bash
 cd scripts/video && npm install
@@ -170,142 +174,217 @@ node build.mjs           # full 1080p build, then verifies its own claims
 
 ### 🏃 For Borrowers
 
-| Feature                  | Description                                                                                         |
-| ------------------------ | --------------------------------------------------------------------------------------------------- |
-| **Credit Building**      | Convert remittance history into an on-chain credit score (300–850) — no traditional bureau required |
-| **NFT Identity**         | Mint a Remittance NFT — your portable, verifiable credit identity on Stellar                        |
-| **Fair Rates**           | Transparent, non-predatory interest rates tied to your score tier, not your zip code                |
-| **Score Tiers**          | Progress through 5 tiers: Seed (15%) → Bronze → Silver → Gold → Platinum (5%)                       |
-| **Self-Custody**         | Full control via any Stellar wallet (Freighter, Albedo) — keys never leave your device              |
-| **Loan Lifecycle**       | Refinance, extend, and repay loans with real-time status updates via SSE                            |
-| **Multi-Channel Alerts** | In-app, email (SendGrid), and SMS (Twilio) notifications with granular preferences                  |
+| Feature | Description |
+| --- | --- |
+| **On-chain credit score** | Remittance history becomes a 300–850 score with a transparent, testable formula — [scoring model](docs/scoring-model.md) |
+| **Remittance NFT identity** | A portable, verifiable credit identity on Stellar that survives leaving the platform |
+| **Fair, score-tiered pricing** | Rates follow repayment behaviour, not postcode. Five tiers: Seed (15%) → Bronze → Silver → Gold → Platinum (5%) |
+| **Self-custody** | Sign with Freighter or any Soroban wallet — private keys never reach our servers |
+| **Full loan lifecycle** | Request, approve, repay (full or partial), refinance, extend, and track status over SSE in real time |
+| **Collateral that is yours** | The NFT is locked as collateral with explicit, on-chain seizure conditions — no surprise liquidation |
+| **Multi-channel notifications** | In-app, email (SendGrid), SMS (Twilio), with per-type preferences and digest configuration |
 
 ### 💰 For Lenders
 
-| Feature                  | Description                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| **Transparent Yield**    | Earn interest by providing liquidity to on-chain lending pools                      |
-| **Pool Analytics**       | Real-time utilization rates, stability scores, risk tiers, and yield projections    |
-| **Position Tracking**    | Monitor deployed capital, accrued yield, and transaction history with CSV export    |
-| **Yield Charts**         | Interactive earnings visualization with 1D/1W/1M/All timeframe toggles              |
-| **Emergency Withdrawal** | Always maintain access to funds via exit hatch when pools are paused                |
-| **Risk Visibility**      | All collateral is verifiable on-chain remittance proofs — no black-box underwriting |
+| Feature | Description |
+| --- | --- |
+| **Transparent yield** | Provide liquidity to on-chain pools and earn interest from interest actually collected |
+| **Pool analytics** | Live utilisation, stability score, risk tier, APR and yield projections per pool |
+| **Position tracking** | Deployed capital, accrued yield, and full transaction history with CSV export |
+| **Yield charts** | Per-share return time series with 1D / 1W / 1M / All toggles |
+| **Emergency exit** | `emergency_withdraw` returns principal from paused pools instead of trapping it |
+| **Verifiable risk** | Every loan is backed by an on-chain NFT, not a black-box model |
 
 ### 🎮 Gamification & Engagement
 
-| Feature               | Description                                                                        |
-| --------------------- | ---------------------------------------------------------------------------------- |
-| **Kingdom Dashboard** | Financial growth mapped to a city-building progression experience                  |
-| **XP & Achievements** | Earn XP through loans, repayments, liquidity provision — over 7 achievement types  |
-| **Quest System**      | "Whale Migration" (deploy liquidity), "Iron Resolve" (maintain position), and more |
-| **Level Progression** | 7 levels: Peasant → Merchant → Knight → Baron → Duke → Prince → King               |
-| **NFT Stamps**        | Earn "Early Adopter" and "Trusted" stamps on your Digital Passport                 |
+| Feature | Description |
+| --- | --- |
+| **Kingdom dashboard** | Financial progression expressed as city-building — the same data, a legible narrative |
+| **XP and achievements** | Earned through loans, repayments and liquidity provision across 7 achievement types |
+| **Quests** | "Whale Migration" (deploy liquidity), "Iron Resolve" (maintain a position), and more |
+| **7 levels** | Peasant → Merchant → Knight → Baron → Duke → Prince → King |
+| **NFT stamps** | "Early Adopter" and "Trusted" stamps recorded on the digital passport |
+
+### 🧰 Platform & Operations
+
+| Feature | Description |
+| --- | --- |
+| **Typed API** | 79 route handlers, OpenAPI 3.0 spec, generated TypeScript client, `Idempotency-Key` support |
+| **Error taxonomy** | 113 documented error codes (80 contract, 33 API) with a single stable response envelope |
+| **Real-time** | Server-Sent Events for loan status, score changes and notifications |
+| **Webhooks** | HMAC-signed delivery with exponential backoff, SSRF guards and replay protection |
+| **Observability** | Structured logs (Winston), Prometheus metrics, Sentry, `/health` `/ready` `/health/deep` probes |
+| **Internationalisation** | English, Spanish and Tagalog via `next-intl`; PWA installable; keyboard-navigable |
+| **Reproducible demos** | Pitch video, gas benchmarks and smoke tests are all generated by committed scripts |
 
 ---
 
 ## 🏗 System Architecture
 
-> **Deployment target:** All four contracts compile to <256 KiB WASM and target the Stellar testnet before mainnet. The live contract addresses are tracked in **[docs/deployed-contracts.md](docs/deployed-contracts.md)** — keep that file the single source of truth whenever a deployment runs.
+> **Deployment target:** the four contracts compile to WASM well inside the network's size budget and target Testnet before Mainnet. Live addresses are tracked in **[docs/deployed-contracts.md](docs/deployed-contracts.md)** — keep that file the single source of truth whenever a deployment runs.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Users (Browsers / Wallets)                   │
-└────────────────┬────────────────────────────────┬────────────────┘
-                 │                                │
-    ┌────────────▼──────────┐      ┌──────────────▼──────────────┐
-    │   Next.js Frontend    │      │    Express.js Backend API   │
-    │   • React 19          │      │    • Credit Scoring         │
-    │   • Tailwind CSS 4    │      │    • Event Indexer          │
-    │   • Freighter/Albedo  │◄────►│    • Webhook Delivery       │
-    │   • i18n (EN/ES/TL)   │      │    • Notification Service   │
-    │   • PWA Support       │      │    • Swagger/OpenAPI        │
-    └────────────┬──────────┘      └──────────────┬──────────────┘
-                 │                                │
-                 │        ┌───────────────────────▼────────┐
-                 │        │      PostgreSQL + Redis          │
-                 │        │   (Metadata, Cache, Sessions)    │
-                 │        └───────────────────────┬────────┘
-                 │                                │
-    ┌────────────▼────────────────────────────────▼────────────┐
-    │                 Stellar Network (Soroban)                  │
-    │                                                           │
-    │  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-    │  │ RemittanceNFT │  │ Loan Manager │  │ Lending Pool   │  │
-    │  │ • Credits     │◄►│ • Lifecycle  │◄►│ • Deposits     │  │
-    │  │ • Scores      │  │ • Approvals  │  │ • Withdrawals  │  │
-    │  │ • Collateral  │  │ • Repayments │  │ • Yield        │  │
-    │  └──────────────┘  └──────┬───────┘  └────────────────┘  │
-    │                           │                               │
-    │                    ┌──────▼───────┐                        │
-    │                    │Multisig Gov  │                        │
-    │                    │• Proposals   │                        │
-    │                    │• Timelock    │                        │
-    │                    │• Admin       │                        │
-    │                    └──────────────┘                        │
-    └───────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    U["👤 Users (Browsers / Wallets)"]
+
+    subgraph FE["Next.js 16 frontend"]
+        F1["React 19 · Tailwind 4"]
+        F2["Freighter wallet"]
+        F3["SSE clients"]
+        F4["i18n EN / ES / TL · PWA"]
+    end
+
+    subgraph BE["Express 5 API · Node 22"]
+        B1["REST API + OpenAPI"]
+        B2["Credit scoring & decay"]
+        B3["Event indexer"]
+        B4["Webhooks + notifications"]
+        B5["SSE streaming"]
+        B6["Cron: defaults, reconciliation"]
+    end
+
+    subgraph DATA["State"]
+        D1[("PostgreSQL 16")]
+        D2[("Redis / in-process cache")]
+    end
+
+    subgraph ST["Stellar (Soroban)"]
+        C1["RemittanceNFT"]
+        C2["LoanManager"]
+        C3["LendingPool"]
+        C4["MultisigGovernance"]
+    end
+
+    U --> FE
+    FE -->|"REST + SSE"| BE
+    FE -.->|"signs transactions"| ST
+    BE --> DATA
+    BE <-->|"Soroban RPC"| ST
+    C2 <--> C1
+    C2 <--> C3
+    C4 -.->|"timelocked admin"| C1
+    C4 -.-> C2
+    C4 -.-> C3
 ```
 
 ### 📦 Smart Contracts
 
-Four Soroban (Rust) smart contracts power the protocol:
+Four Soroban (Rust) contracts, each with a single responsibility:
 
-| Contract                                                 | Description                  | Key Functions                                                               | Events                                                         |
-| -------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **[RemittanceNFT](contracts/remittance_nft/)**           | Credit identity & collateral | `mint`, `update_score`, `seize_collateral`, `transfer`                      | `Mint`, `ScoreUpd`, `Seized`, `Transfer`                       |
-| **[LoanManager](contracts/loan_manager/)**               | Full loan lifecycle          | `request_loan`, `approve_loan`, `repay`, `liquidate`, `refinance`, `extend` | `LoanRequested`, `LoanApproved`, `LoanRepaid`, `LoanDefaulted` |
-| **[LendingPool](contracts/lending_pool/)**               | Liquidity + safety           | `deposit`, `withdraw`, `emergency_withdraw`, `adjust_outstanding`           | `Deposit`, `Withdraw`, `YieldDistributed`, `DepositCapReached` |
-| **[MultisigGovernance](contracts/multisig_governance/)** | Admin with timelock          | `propose_admin_transfer`, `approve_transfer`, `finalize`, `cancel`          | `GovProp`, `GovAppr`, `GovFin`, `GovCncl`                      |
+| Contract | Responsibility | Key functions | Events |
+| --- | --- | --- | --- |
+| **[RemittanceNFT](contracts/remittance_nft/)** | Credit identity & collateral | `mint`, `update_score`, `seize_collateral`, `transfer` | `Mint`, `ScoreUpd`, `Seized`, `Transfer` |
+| **[LoanManager](contracts/loan_manager/)** | Complete loan lifecycle | `request_loan`, `approve_loan`, `repay`, `liquidate`, `refinance`, `extend` | `LoanRequested`, `LoanApproved`, `LoanRepaid`, `LoanDefaulted` |
+| **[LendingPool](contracts/lending_pool/)** | Liquidity and safety rails | `deposit`, `withdraw`, `emergency_withdraw`, `adjust_outstanding` | `Deposit`, `Withdraw`, `YieldDistributed`, `DepositCapReached` |
+| **[MultisigGovernance](contracts/multisig_governance/)** | Timelocked administration | `propose_admin_transfer`, `approve_transfer`, `finalize`, `cancel` | `GovProp`, `GovAppr`, `GovFin`, `GovCncl` |
 
-### ⚙️ Backend Services
+The state machine they jointly implement — including how a loan moves between `Requested`, `Approved`, `Repaid` and `Defaulted`, and which contract owns each transition — is documented in **[docs/wiki/contract-state-machine.md](docs/wiki/contract-state-machine.md)**.
 
-| Service                  | Description                                                                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Event Indexer**        | Polls Soroban RPC, persists events to PostgreSQL, dispatches webhooks with HMAC signing                                       |     | **Indexer Manager** | Orchestrates indexer instances with retry, backoff, sync checkpoints, and quarantine handling |
-| **Soroban RPC Client**   | Typed Stellar RPC wrapper with cached contract metadata and method invocation helpers                                         |
-| **Database Connector**   | Postgres connection pool with pg-format escaping and migration runner (internal)                                              |
-| **Credit Scoring**       | Calculates and updates scores based on repayment history with score decay                                                     |
-| **Score Decay Job**      | Cron-driven score erosion for inactive borrowers — keeps the on-chain tier accurate                                           |
-| **Remittance Service**   | Remittance ingestion, validation, and history-hash computation for credit provenance                                          |
-| **Yield History**        | Lender-style time-series of pool yield, APR, and per-share returns                                                            |
-| **Webhook Engine**       | Delivers events to subscribed URLs with exponential backoff retry (configurable max attempts)                                 |
-| **Notification Service** | Multi-channel (in-app SSE, email via SendGrid, SMS via Twilio) with per-type preferences                                      |
-| **SSE Streaming**        | Real-time Server-Sent Events for live UI updates on loan status and score changes                                             |
-| **Score Reconciliation** | Periodic on-chain/off-chain score sync with optional auto-correction                                                          |
-| **Default Checker**      | Scheduled cron job for detecting and processing loan defaults                                                                 |
-| **Cache Layer**          | Redis-backed caching for scores, pool data, contract metadata (configurable TTLs)                                             |
-| **Job Metrics**          | Prometheus-compatible metrics for indexer health, job latency, and throughput                                                 |     | **Rate Limiting**   | Tiered (anon / authed / admin) Redis sliding window with `Retry-After` headers                |
-| **RBAC**                 | JWT authentication with role-based access control (borrower, lender, admin), scope-bound permissions, and JWT revocation list |
-| **Audit Logging**        | Immutable audit trail for all admin and governance actions                                                                    |
+### 🔧 Backend Services
 
-### 🎨 Frontend Pages
+| Service | Description |
+| --- | --- |
+| **Event Indexer** | Polls Soroban RPC, persists events to PostgreSQL, dispatches webhooks with HMAC signing |
+| **Indexer Manager** | Orchestrates indexer instances with retry, backoff, sync checkpoints and quarantine handling |
+| **Soroban RPC Client** | Typed Stellar RPC wrapper with cached contract metadata and invocation helpers |
+| **Database Layer** | Postgres connection pool, transactional helpers, statement timeouts and migration runner |
+| **Credit Scoring** | Calculates and updates scores from repayment history, including scheduled score decay |
+| **Score Decay Job** | Cron-driven erosion for inactive borrowers, keeping the on-chain tier honest |
+| **Score Reconciliation** | Periodic on-chain/off-chain score comparison with optional, bounded auto-correction |
+| **Default Checker** | Scheduled detection of missed repayments, with `SET NX` locking so runs cannot overlap |
+| **Remittance Service** | Remittance ingestion, validation and history-hash computation for credit provenance |
+| **Yield History** | Lender-facing time series of pool yield, APR and per-share returns |
+| **Webhook Engine** | Signed delivery to subscriber URLs with exponential backoff and configurable attempts |
+| **Notification Service** | Multi-channel delivery (SSE, email, SMS) with per-type preferences and retention policy |
+| **SSE Streaming** | Real-time server-sent events for loan status and score changes |
+| **Cache Layer** | Key-value caching for scores, pool data and contract metadata — Redis when configured, otherwise an in-process store |
+| **Rate Limiting** | Tiered (anonymous / authed / admin) fixed-window limiting with `Retry-After` headers |
+| **Authentication & RBAC** | JWT auth with role-based scopes (borrower, lender, admin) and a revocation list |
+| **Audit Logging** | Immutable trail for admin and governance actions |
+| **Metrics** | Prometheus-compatible exposition for indexer health, job latency and throughput |
 
-| Page                    | Description                                                                         |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| **Landing / Dashboard** | Wallet connection (Freighter, Albedo), portfolio overview, quick actions            |
-| **Borrower Portfolio**  | Credit score gauge, NFT status, active loans, repayment tracking                    |
-| **Request Loan**        | Single-page loan application: amount, collateral NFT, terms, signature              |
-| **Repay**               | One-click repay flow with on-chain transaction preview and partial-payment support  |
-| **Loans**               | Loan list with status/score/amount filters and CSV export                           |
-| **Lender Portfolio**    | Pool cards with utilization bars, risk badges, deposit/withdraw flows, yield charts |
-| **Analytics**           | Borrower and lender statistics, score history charts, portfolio breakdowns          |
-| **Kingdom**             | Gamification dashboard: city-building, XP, quests, achievements                     |
-| **Loan Details**        | Timeline view, health status, repayment progress, collateral actions                |
-| **Wallet**              | Stellar address, token balances (Horizon), transaction history, QR codes            |
-| **Send Remittance**     | Cross-border transfer with transaction preview and fee estimation                   |
-| **Liquidations**        | Defaulted loans surfaced for admin collateral seizure workflow                      |
-| **Activity**            | Full transaction history with filters, search, and CSV export                       |
-| **Notifications**       | Real-time SSE stream, granular preferences, digest configuration                    |
-| **Admin / Governance**  | Dispute management, multisig proposals, loan oversight                              |
-| **UI Demo**             | Component playground used for design-system docs and visual QA                      |
-| **Settings**            | Profile, wallet, notification preferences, theme (light/dark/system), language      |
+Service-level reference: **[backend/src/services/README.md](backend/src/services/README.md)**.
+
+### 🎨 Frontend
+
+21 routes and dynamic segments under `app/[locale]/`:
+
+| Page | Description |
+| --- | --- |
+| **Landing / Dashboard** | Wallet connection (Freighter, Albedo), portfolio overview, quick actions |
+| **Borrower Portfolio** | Credit score gauge, NFT status, active loans, repayment tracking |
+| **Request Loan** | Single-page application: amount, collateral NFT, terms, signature |
+| **Repay** | One-click repayment with on-chain transaction preview and partial-payment support |
+| **Loans** | Loan list with status/score/amount filters and CSV export |
+| **Loan Details** | Timeline, health status, repayment progress, collateral actions |
+| **Lender Portfolio** | Pool cards with utilisation bars, risk badges, deposit/withdraw flows, yield charts |
+| **Analytics** | Borrower and lender statistics, score history, portfolio breakdowns |
+| **Kingdom** | Gamification dashboard: city-building, XP, quests, achievements |
+| **Wallet** | Stellar address, token balances from Horizon, transaction history, QR codes |
+| **Send Remittance** | Cross-border transfer with transaction preview and fee estimation |
+| **Liquidations** | Defaulted loans surfaced for the admin collateral-seizure workflow |
+| **Activity** | Full transaction history with filters, search and CSV export |
+| **Notifications** | SSE stream, granular preferences, digest configuration |
+| **Admin / Governance** | Dispute management, multisig proposals, loan oversight |
+| **Settings** | Profile, wallet, notification preferences, theme, language |
+| **UI Demo** | Component playground used for design-system documentation and visual QA |
+
+Shared patterns — query caching, error boundaries, optimistic updates, wallet state — are documented in **[docs/wiki/frontend-patterns.md](docs/wiki/frontend-patterns.md)**.
 
 ### 📘 TypeScript SDK
 
-- **`packages/types/`** — Auto-generated TypeScript types from OpenAPI 3.0 spec
-- **`packages/sdk/`** — Typed HTTP client with JWT auth, retry logic, and error handling
-- SDK modules: `auth`, `loans`, `notifications`, `scores`, `remittances`, `pools`, `simulation`, `admin`, `events`, `indexer`, `transactions`, `user`, `health`
-- Event stream subscriptions (Server-Sent Events) with auto-reconnect and per-action filters
-- Server-to-server admin client with API key authentication for automated workflows
+- **`packages/types/`** — TypeScript types generated from the OpenAPI 3.0 spec (`npm run generate:types`)
+- **`packages/sdk/`** — typed HTTP client with JWT auth, retry logic and structured errors ([README](packages/sdk/README.md))
+- Modules: `auth`, `loans`, `notifications`, `scores`, `remittances`, `pool`, `simulation`, `admin`, `events`, `indexer`, `transactions`, `user`, `health`
+- Event-stream subscriptions (SSE) with auto-reconnect and per-action filters
+- Server-to-server admin client authenticated with an API key for automated workflows
+
+### 🌟 Stellar Integration
+
+ZizaLend uses Stellar deliberately at each layer rather than as a ledger of last resort:
+
+| Capability | How it is used |
+| --- | --- |
+| **Soroban smart contracts** | The loan lifecycle, credit identity, pool accounting and governance all live in Rust contracts |
+| **Stellar Asset Contract** | The native XLM SAC is the pool token — no bridged or wrapped asset to trust |
+| **Soroban RPC** | Contract simulation, invocation and event streaming, with cached metadata and retries |
+| **Horizon API** | Wallet balances and payment history on the Wallet page, straight from the network |
+| **Freighter wallet** | Client-side transaction signing; keys never leave the user's device |
+| **Stellar Expert deep links** | Every transaction hash in the UI resolves to a block-explorer page |
+| **Multi-asset corridors** | USDC, EURC and PHP issuers configurable per deployment for local-currency lending |
+| **Network passphrase config** | Testnet and Mainnet share one code path, switched entirely by configuration |
+
+---
+
+## ⚡ Performance & Gas
+
+Soroban charges for CPU instructions and for ledger I/O. Every figure below was simulated against the **deployed Testnet contracts**, with preceding steps submitted so each measurement is taken against real state rather than a synthetic call. Full methodology and reproduction steps: **[docs/GAS.md](docs/GAS.md)**.
+
+| Operation | Contract | CPU instructions | Read + write bytes | Min resource fee (stroops) |
+| --- | --- | ---: | ---: | ---: |
+| `mint` _(first mint, no existing NFT)_ | RemittanceNFT | 1,070,760 | 296 | 75,966 |
+| `update_score` _(50 XLM repayment)_ | RemittanceNFT | 1,190,512 | 564 | 72,624 |
+| `deposit` _(100 XLM into an empty pool)_ | LendingPool | 1,865,971 | 1,868 | 108,701 |
+| `request_loan` _(10 XLM, default term)_ | LoanManager | 5,159,066 | 2,656 | 215,930 |
+| `approve_loan` _(moves principal out of the pool)_ | LoanManager | 4,854,523 | 2,244 | 35,370 |
+| `repay` _(full repayment: accrual, score credit, settlement)_ | LoanManager | 7,402,455 | 3,080 | 70,028 |
+| `get_loan` _(read path — simulated only)_ | LoanManager | 1,105,565 | 0 | 17,147 |
+| `get_loan_accrued` _(read path — simulated only)_ | LoanManager | 1,284,071 | 0 | 17,306 |
+| `get_pool_stats` _(read path — simulated only)_ | LendingPool | 1,058,040 | 0 | 15,408 |
+| `get_score` _(read path — simulated only)_ | RemittanceNFT | 779,283 | 0 | 13,608 |
+
+**Summary:** 6 state-changing operations totalling 21,543,287 CPU instructions, the most expensive being `repay` at 7,402,455. Soroban's per-transaction ceiling is 100,000,000 instructions, so the heaviest operation in the protocol uses a low single-digit percentage of the budget available to it. These costs are state-dependent by design — a repayment grows with accrued interest, a mint costs more for a borrower with no existing NFT — so the state each row was measured against is recorded alongside it.
+
+Binary size is tracked separately, because it is the figure a contributor directly controls and the one that determines upload cost:
+
+| Contract | WASM size |
+| --- | ---: |
+| `loan_manager` | 88,942 bytes |
+| `remittance_nft` | 49,164 bytes |
+| `lending_pool` | 48,627 bytes |
+| `multisig_governance` | 31,434 bytes |
+
+`scripts/check-wasm-size.mjs` gates these in CI. Resource cost is deliberately **not** gated: Testnet cost drifts with ledger load and protocol version, and a threshold that fails on drift is a flaky check that teaches people to ignore it.
 
 ---
 
@@ -313,59 +392,60 @@ Four Soroban (Rust) smart contracts power the protocol:
 
 ### Frontend
 
-| Technology             | Purpose                                                    |
-| ---------------------- | ---------------------------------------------------------- |
-| **Next.js 16**         | React framework — App Router, Server Components, Turbopack |
-| **React 19**           | UI library with compiler, hooks, Suspense                  |
-| **Tailwind CSS 4**     | Utility-first styling with CSS-first configuration         |
-| **TypeScript 5**       | Type safety across the entire codebase                     |
-| **Stellar Wallet Kit** | Freighter, Albedo, and WalletConnect integration           |
-| **Zustand**            | Lightweight state management with persist middleware       |
-| **TanStack Query**     | Server state management and caching                        |
-| **next-intl**          | Internationalization (English, Spanish, Tagalog)           |
-| **Recharts**           | Charting for yield and performance dashboards              |
-| **Framer Motion**      | Animation library for micro-interactions                   |
-| **Serwist**            | PWA support with service workers                           |
-| **Sentry**             | Error tracking and performance monitoring                  |
+| Technology | Purpose |
+| --- | --- |
+| **Next.js 16** | App Router, React Server Components, Turbopack |
+| **React 19** | UI library with the React Compiler, Suspense and transitions |
+| **Tailwind CSS 4** | Utility-first styling with CSS-first configuration |
+| **TypeScript 5.9** | Type safety across the entire codebase |
+| **Stellar SDK + Freighter API** | Wallet connection and client-side transaction signing |
+| **Zustand** | Lightweight state management with persist middleware |
+| **TanStack Query** | Server-state caching, retries and background refetch |
+| **next-intl** | Internationalisation (English, Spanish, Tagalog) |
+| **Recharts** | Yield and portfolio charting |
+| **Framer Motion** | Motion and micro-interactions |
+| **Serwist** | PWA service worker and offline shell |
+| **Sentry** | Error tracking and performance monitoring |
 
 ### Backend
 
-| Technology                | Purpose                                        |
-| ------------------------- | ---------------------------------------------- |
-| **Node.js 22**            | JavaScript runtime                             |
-| **Express.js 5**          | HTTP framework with middleware pipeline        |
-| **TypeScript 5**          | Type safety with strict mode                   |
-| **PostgreSQL**            | Primary database with connection pooling       |
-| **Redis**                 | Caching, rate limiting, session store          |
-| **Zod**                   | Runtime request validation with type inference |
-| **node-pg-migrate**       | Database migration framework (27 migrations)   |
-| **Winston**               | Structured logging with multiple transports    |
-| **Swagger / OpenAPI 3.0** | API documentation and SDK code generation      |
-| **JWT**                   | Stateless authentication with refresh support  |
-| **Prometheus**            | Metrics exposition for monitoring              |
-| **Sentry**                | Error tracking across frontend and backend     |
-| **SendGrid + Twilio**     | Email and SMS notification delivery            |
+| Technology | Purpose |
+| --- | --- |
+| **Node.js 22** | Runtime (pinned via `.nvmrc`, identical in CI) |
+| **Express 5** | HTTP framework and middleware pipeline |
+| **TypeScript 5** | Type safety with strict mode |
+| **PostgreSQL 16** | Primary datastore with connection pooling and transactional helpers |
+| **Redis 7** | Optional: cache, rate-limit counters and distributed locks, with an in-process fallback |
+| **Zod** | Runtime request/response validation |
+| **node-pg-migrate** | 34 versioned database migrations |
+| **Winston** | Structured JSON logging |
+| **Swagger / OpenAPI 3.0** | API documentation and SDK generation |
+| **JWT** | Stateless auth with role and scope claims, plus revocation |
+| **Prometheus** | Metrics exposition |
+| **Sentry** | Error tracking |
+| **SendGrid + Twilio** | Email and SMS delivery |
 
 ### Smart Contracts
 
-| Technology      | Purpose                                                             |
-| --------------- | ------------------------------------------------------------------- |
-| **Rust**        | Contract language with memory safety                                |
-| **Soroban SDK** | Stellar's smart contract framework                                  |
-| **WASM**        | WebAssembly compilation (< 256 KiB budget per contract)             |
-| **Cargo Fuzz**  | Property-based fuzz testing — 5 fuzz targets across all 4 contracts |
+| Technology | Purpose |
+| --- | --- |
+| **Rust** | Contract language with memory safety |
+| **Soroban SDK** | Stellar's smart-contract framework |
+| **WebAssembly** | Compiled target, size-gated in CI |
+| **Cargo Fuzz** | 5 property-based fuzz targets across the 4 contracts |
 
 ### DevOps & CI
 
-| Technology            | Purpose                                            |
-| --------------------- | -------------------------------------------------- |
-| **Docker & Compose**  | Local development and staging deployment           |
-| **GitHub Actions**    | CI/CD — 6 workflow types, 9+ job types             |
-| **GHCR**              | Container registry for staging images              |
-| **Trivy**             | Vulnerability scanning (HIGH + CRITICAL) in CI/CD  |
-| **CodeQL**            | Static analysis for JavaScript/TypeScript and Rust |
-| **Commitlint**        | Conventional Commits enforcement                   |
-| **Dependency Review** | Automated dependency change auditing               |
+| Technology | Purpose |
+| --- | --- |
+| **GitHub Actions** | 7 workflows and 13 required status checks on `main` |
+| **Docker & Compose** | Local development and staging stacks |
+| **GHCR** | Container registry for staging images |
+| **Trivy** | Vulnerability scanning (HIGH + CRITICAL) |
+| **CodeQL** | Static analysis for TypeScript/JavaScript and Rust |
+| **Commitlint** | Conventional Commits enforcement |
+| **Dependency Review** | Blocks vulnerable dependency changes on PRs |
+| **Dependabot** | Automated dependency updates |
 
 ---
 
@@ -373,13 +453,15 @@ Four Soroban (Rust) smart contracts power the protocol:
 
 ### Prerequisites
 
-```bash
-node -v        # Node ≥ 22 required (CI runs on Node 22)
-docker --version
-rustup target add wasm32v1-none
-```
+| Requirement | Why |
+| --- | --- |
+| **Node.js ≥ 22** | Required by every workspace; CI runs the version in `.nvmrc` |
+| **Docker + Compose** | The fastest path to a complete local stack |
+| **Rust + `wasm32v1-none` target** | Only for building or testing contracts: `rustup target add wasm32v1-none` |
+| **PostgreSQL 16** | Required by the API (migrations, all data routes) — provided by Compose |
+| **Redis 7** | *Optional.* Without it the cache and rate limiter use an in-process store |
 
-### Docker (Recommended)
+### Docker (recommended)
 
 ```bash
 git clone https://github.com/Ziza-Inc/ZizaLend.git
@@ -388,13 +470,16 @@ cp backend/.env.example backend/.env
 docker compose up --build
 ```
 
-| Service            | URL                        |
-| ------------------ | -------------------------- |
-| Frontend           | http://localhost:3000      |
-| Backend API        | http://localhost:3001      |
-| API Docs (Swagger) | http://localhost:3001/docs |
-| PostgreSQL         | localhost:5432             |
-| Redis              | localhost:6380             |
+| Service | URL |
+| --- | --- |
+| Frontend | <http://localhost:3000> |
+| Backend API | <http://localhost:3001> |
+| API docs (Swagger) | <http://localhost:3001/docs> |
+| Health probe | <http://localhost:3001/health> |
+| PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6380` |
+
+The Compose stack wires `DATABASE_URL` and `REDIS_URL` for you, applies migrations on boot, and health-checks each service before dependants start.
 
 ### Manual Setup
 
@@ -405,20 +490,23 @@ docker compose up --build
 cd backend
 npm install
 cp .env.example .env
-# Edit .env with your DATABASE_URL
+# Edit .env: DATABASE_URL is required, and so are the contract IDs and secrets
 npm run migrate:up
+npm run seed          # optional: development data
 npm run dev
 ```
 
-| Script               | Description                      |
-| -------------------- | -------------------------------- |
-| `npm run dev`        | Start dev server with hot reload |
-| `npm run build`      | Compile TypeScript               |
-| `npm test`           | Run test suite                   |
-| `npm run lint`       | ESLint check                     |
-| `npm run typecheck`  | TypeScript type checking         |
-| `npm run migrate:up` | Apply database migrations        |
-| `npm run seed`       | Seed development data            |
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Dev server with hot reload |
+| `npm run build` | Compile TypeScript |
+| `npm test` | Full Jest suite |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript type checking |
+| `npm run format:check` | Prettier check (enforced in CI) |
+| `npm run migrate:up` | Apply database migrations |
+| `npm run migrate:create` | Create a new migration |
+| `npm run seed` | Seed development data (`--reset` to rebuild) |
 
 </details>
 
@@ -431,139 +519,238 @@ npm install
 npm run dev
 ```
 
-| Script              | Description                     |
-| ------------------- | ------------------------------- |
-| `npm run dev`       | Start dev server with Turbopack |
-| `npm run build`     | Production build                |
-| `npm test`          | Run 190 unit tests              |
-| `npm run lint`      | Prettier code style check       |
-| `npm run typecheck` | TypeScript type checking        |
-| `npm run test:e2e`  | Playwright E2E tests            |
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Dev server with Turbopack |
+| `npm run build` | Production build |
+| `npm test` | 201 unit tests |
+| `npm run test:e2e` | 11 Playwright specs |
+| `npm run lint` | Prettier check |
+| `npm run typecheck` | TypeScript type checking |
+| `npm run audit:a11y` | Automated accessibility audit |
 
 </details>
 
 <details>
-<summary><strong>Smart Contracts</strong></summary>
+<summary><strong>Smart contracts</strong></summary>
 
 ```bash
 cd contracts
 cargo build --target wasm32v1-none --release
-cargo test
+cargo test                     # 344 tests
 
-# Fuzz testing
-cd contracts/fuzz
+# Property-based fuzzing (5 targets)
+cd fuzz
 cargo fuzz run lending_pool_fuzz
+cargo fuzz run loan_manager_fuzz
+```
+
+Build output is size-checked by `scripts/check-wasm-size.mjs`, which also runs in CI.
+
+</details>
+
+<details>
+<summary><strong>Operator scripts</strong></summary>
+
+```bash
+cd scripts
+npm install
+
+npx ts-node deploy.ts testnet                    # deploy and wire all four contracts
+SECRET_KEY=<admin secret> npx ts-node smoke-testnet.ts testnet     # end-to-end journey
+SECRET_KEY=<admin secret> npx ts-node benchmark-gas.ts testnet     # regenerate docs/GAS.md
+node check-wasm-size.mjs                         # enforce the WASM budget
+node check-env-docs.mjs                          # verify env docs match the templates
+node generate-error-codes.mjs                    # regenerate docs/ERROR_CODES.md
+node publish-issues.mjs                          # publish docs/contributor-issues/ to GitHub
 ```
 
 </details>
 
 ---
 
-## 📚 Documentation
+## 🔧 Configuration
 
-| Resource                                                                 | Description                                                              |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| **[Development Guide](docs/DEVELOPMENT.md)**                             | Setup, workflow, and code quality across all components                  |
-| **[Architecture](ARCHITECTURE.md)**                                      | System architecture with diagrams, data flow, security model             |
-| **[Testing Guide](docs/TESTING.md)**                                     | Testing strategy, commands, and CI pipeline                              |
-| **[SDK Documentation](packages/sdk/README.md)**                          | TypeScript SDK usage, modules, and examples                              |
-| **[docs/wiki/](docs/wiki/README.md)**                                    | Technical wiki — contract state machine, indexer sync, frontend patterns |
-| **[docs/adr/](docs/adr/)**                                               | Architecture Decision Records (contracts, event indexer, auth model)     |
-| **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**                           | Complete environment variable reference                                  |
-| **[docs/webhooks.md](docs/webhooks.md)**                                 | Webhook integration with HMAC signature verification                     |
-| **[docs/deployed-contracts.md](docs/deployed-contracts.md)**             | Contract IDs on testnet/mainnet                                          |
-| **[docs/contracts-ACCESS-CONTROL.md](docs/contracts-ACCESS-CONTROL.md)** | Permission matrix for all 4 contracts                                    |
-| **[docs/runbooks/](docs/runbooks/)**                                     | Operational runbooks (indexer recovery, staging deployment)              |
-| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**                   | Common issues and resolutions                                            |
-| **[DESIGN.md](docs/DESIGN.md)**                                               | UI/UX design spec with component specifications                          |
-| **[ROADMAP.md](ROADMAP.md)**                                             | Product roadmap and planned features                                     |
-| **[Swagger UI](http://localhost:3001/docs)**                             | Interactive API documentation (dev only)                                 |
+Every variable is documented in **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**; the templates are `.env.example` (repository root, used by Compose), `backend/.env.example` and `frontend/.env.example`. CI fails if the templates and the documentation drift apart.
+
+The variables that decide whether the stack runs at all:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string. The API cannot start without it. |
+| `JWT_SECRET` | ✅ | Signs user sessions |
+| `STELLAR_RPC_URL` / `STELLAR_NETWORK_PASSPHRASE` | ✅ | Which network the API talks to |
+| `LOAN_MANAGER_CONTRACT_ID`, `LENDING_POOL_CONTRACT_ID`, `REMITTANCE_NFT_CONTRACT_ID`, `MULTISIG_GOVERNANCE_CONTRACT_ID`, `POOL_TOKEN_ADDRESS` | ✅ | The deployed contract set |
+| `LOAN_MANAGER_ADMIN_SECRET` | ✅ | Operator key for on-chain write paths |
+| `INTERNAL_API_KEY` | ✅ | Unlocks `/metrics` and admin routes |
+| `FRONTEND_URL` | ✅ | CORS allow-list origin for the frontend |
+| `REDIS_URL` | — | Cache, locks and rate-limit counters. **When unset the API still runs**, using an in-process store: state is per-instance and is lost on restart. Set it for any multi-instance deployment. |
+| `CACHE_DRIVER` | — | `auto` (default — Redis when `REDIS_URL` is set, otherwise in-process), `redis` (startup fails without a URL), or `memory` |
+| `SENTRY_DSN`, `SENDGRID_API_KEY`, `TWILIO_*` | — | Optional observability and notification channels |
+
+Two behaviours worth knowing before you deploy:
+
+- **`CACHE_DRIVER=redis` is a hard requirement.** Asking for a shared cache and silently getting a per-process one is the kind of failure nobody notices until rate limits stop working, so the API refuses to start instead.
+- **`GET /health` reports which cache driver is serving**, alongside database, cache and Soroban RPC status.
+
+---
+
+## 🔌 API
+
+The REST API is mounted under both `/api` (legacy) and `/api/v1` (current) — 79 route handlers across 12 route groups.
+
+```bash
+curl http://localhost:3001/health
+curl http://localhost:3001/api/v1/pool/stats
+```
+
+| Concern | Implementation |
+| --- | --- |
+| **Specification** | OpenAPI 3.0, generated with `npm run generate:spec` into `packages/openapi.json`; served at `/docs` via Swagger UI |
+| **Types & client** | `npm run generate:types` regenerates `packages/types`; the SDK in `packages/sdk` wraps every module |
+| **Authentication** | JWT bearer tokens (or the auth cookie) carrying role and scope claims; revocation checked on every request |
+| **Authorisation** | Roles: `borrower`, `lender`, `admin`, with scope-bound permissions defined in one place |
+| **Rate limits** | Tiered anonymous / authenticated / admin windows, returning `Retry-After` when exhausted |
+| **Idempotency** | Send `Idempotency-Key` on mutating requests; replays return the stored response — [docs/wiki/api-idempotency.md](docs/wiki/api-idempotency.md) |
+| **Validation** | Zod schemas on every route, with typed, actionable 400 responses |
+| **Errors** | One envelope for the whole API, carrying a stable code from the 113 in [docs/ERROR_CODES.md](docs/ERROR_CODES.md) (80 contract, 33 API). Regenerated by `scripts/generate-error-codes.mjs` and checked for staleness and duplicates in CI. |
+| **Streaming** | SSE endpoints for loan and notification streams, with auto-reconnect |
+| **Webhooks** | HMAC-signed payloads, exponential-backoff retries, SSRF guards — [docs/webhooks.md](docs/webhooks.md) |
+| **Transactions** | Preview builders so the UI can show fees and balance changes before a user signs — [docs/TRANSACTION_PREVIEW.md](docs/TRANSACTION_PREVIEW.md) |
 
 ---
 
 ## 🧪 Testing
 
-```mermaid
-flowchart LR
-    subgraph Backend["Backend"]
-        B1["51 Suites"] --> B2["322+ Tests"]
-        B3["Jest + Supertest"]
-    end
-    subgraph Frontend["Frontend"]
-        F1["19 Suites"] --> F2["190 Unit Tests"]    F3["11 E2E Specs"] --> F4["Playwright"]
-    end
-    subgraph Contracts["Contracts"]
-        C1["Rust Tests"] --> C2["Unit + Integration"]
-        C3["5 Fuzz Targets"]
-    end
-```
+1,110 tests — 344 contract, 565 backend and 201 frontend unit — plus 11 Playwright end-to-end specs. Every one of them runs locally with the same command CI uses:
 
-```bash
-# Backend
-cd backend && npm test
+| Suite | Count | Command | Notes |
+| --- | ---: | --- | --- |
+| **Contract tests** | 344 | `cd contracts && cargo test` | Per-crate unit and integration tests; coverage gated at 75% by `cargo tarpaulin` in CI |
+| **Backend tests** | 565 passing (32 skipped) | `cd backend && npm test` | Jest + Supertest across 84 suites; the skipped suites require a live Postgres/Redis |
+| **Frontend unit tests** | 201 | `cd frontend && npm test` | Jest + Testing Library across 20 suites |
+| **End-to-end tests** | 11 specs | `cd frontend && npm run test:e2e` | Playwright; accessibility checked with `axe-playwright` |
+| **Fuzz targets** | 5 | `cd contracts/fuzz && cargo fuzz run <target>` | Property-based invariants across all four contracts |
+| **Smoke test** | 8 steps | `cd scripts && SECRET_KEY=<admin> npx ts-node smoke-testnet.ts testnet` | Runs the real journey against deployed Testnet contracts |
 
-# Frontend unit + E2E
-cd frontend && npm test
-cd frontend && npm run test:e2e
+Quality gates that can fail a pull request: contract coverage (`--fail-under 75`), WASM size budget, error-code documentation drift, environment-variable documentation drift, OpenAPI spec freshness, ShellCheck, ESLint, Prettier, TypeScript in every workspace, merge-conflict markers, and CodeQL.
 
-# Smart contracts
-cd contracts && cargo test
-
-# Fuzz testing — 5 property-based targets across all 4 contracts
-cd contracts/fuzz && cargo fuzz run lending_pool_fuzz
-```
-
-See **[FUZZING_README.md](contracts/FUZZING_README.md)** for comprehensive fuzz testing documentation including invariant definitions, campaign scripts, and coverage analysis.
+Fuzzing strategy, invariants and campaign scripts live in **[contracts/FUZZING_README.md](contracts/FUZZING_README.md)**; the wider strategy is in **[docs/TESTING.md](docs/TESTING.md)**.
 
 ---
 
 ## 🔒 Security
 
-### Defense in Depth
+### Defense in depth
 
-| Layer              | Protections                                                                        |
-| ------------------ | ---------------------------------------------------------------------------------- |
-| **User**           | Wallet custody (private keys never stored), hardware wallet support                |
-| **Application**    | Zod validation, tiered rate limiting, CORS, CSP headers, CSRF tokens               |
-| **Smart Contract** | Access control matrix, CEI pattern, integer overflow protection, reentrancy guards |
-| **Network**        | TLS/HTTPS, Stellar BFT consensus, transaction signing                              |
-| **CI/CD**          | CodeQL, Trivy, Dependency Review, Supply Chain Audit, Commitlint                   |
+| Layer | Protections |
+| --- | --- |
+| **User** | Self-custody signing — private keys never reach the server; hardware wallets supported |
+| **Application** | Zod validation, tiered rate limiting, CORS allow-list, CSP headers, CSRF protection, JWT revocation |
+| **Smart contract** | Explicit `require_auth()` on public entrypoints, access-control matrix, CEI ordering, checked arithmetic, bounded parameters |
+| **Network** | TLS, Stellar BFT consensus, signed transactions |
+| **Supply chain** | CodeQL (TS + Rust), Trivy image scanning, Dependency Review, Dependabot, pinned CI actions |
 
-### Smart Contract Security Highlights
+### Smart-contract security highlights
 
-- **Access Control**: Every public function requires explicit `require_auth()`. Admin operations gated by stored admin address. Minter operations limited to `AuthorizedMinter` set (max 32 addresses).
-- **CEI Pattern**: All state mutations committed before cross-contract token transfers — prevents reentrancy.
-- **Integer Safety**: All arithmetic uses `checked_mul`/`checked_div`/`checked_add` chains with hard caps (`MAX_RATIO_BPS = 10_000`, `MAX_PENALTY_MULTIPLIER = 2`).
-- **Governance Timelock**: Admin transfers require multisig proposal with 24-hour minimum timelock, 1-hour reproposal cooldown, and 7-day expiry.
+- **Explicit authorisation.** Every public function requires `require_auth()`. Admin operations are gated by the stored admin address, and minting is limited to an `AuthorizedMinter` set capped at 32 addresses.
+- **Checks-Effects-Interactions.** State mutations are committed before any cross-contract token transfer, so reentrancy has nothing to exploit.
+- **Checked arithmetic.** All maths uses `checked_mul` / `checked_div` / `checked_add` chains with hard caps (`MAX_RATIO_BPS = 10_000`, `MAX_PENALTY_MULTIPLIER = 2`).
+- **Timelocked governance.** Admin transfers require a multisig proposal with a 24-hour minimum timelock, a 1-hour reproposal cooldown and a 7-day expiry window.
+- **Bounded inputs.** Score deltas, amounts, terms and penalties are validated on-chain, not just in the API.
 
-See **[SECURITY.md](SECURITY.md)** and **[contracts-ACCESS-CONTROL.md](docs/contracts-ACCESS-CONTROL.md)** for the full security model.
+The full model — including the per-function permission matrix and the threat model with its explicit non-goals — is in **[docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)** and **[docs/contracts-ACCESS-CONTROL.md](docs/contracts-ACCESS-CONTROL.md)**. Scan configuration and how to triage findings: **[docs/wiki/security-scanning.md](docs/wiki/security-scanning.md)**.
+
+**Reporting a vulnerability:** please follow **[SECURITY.md](SECURITY.md)** rather than opening a public issue.
+
+---
+
+## 📈 Operations & Monitoring
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Liveness plus dependency status (database, cache driver, Soroban RPC) |
+| `GET /ready` | Readiness — 503 when a dependency is unusable, so orchestrators drain instead of restart-looping |
+| `GET /health/deep` | Database, cache, RPC and indexer-lag check with timeout guards |
+| `GET /version` | Build, network and the contract set currently wired (all three governance instances) |
+| `GET /metrics` | Prometheus exposition, protected by `INTERNAL_API_KEY` |
+
+**Background jobs** run in-process and are individually startable and stoppable, so a crash in one does not take the API down with it: event indexer with checkpointing and quarantine, default checker (with `SET NX` locking so runs cannot overlap), score reconciliation, score decay, webhook retry with backoff, and notification retention cleanup.
+
+**Observability:** structured JSON logs via Winston, Prometheus counters and histograms for indexer lag and job latency, Sentry for both frontend and backend, and an immutable audit log for every admin and governance action.
+
+**Runbooks:** **[docs/runbooks/](docs/runbooks/)** covers indexer recovery and staging deployment. **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** covers the failures people actually hit, and the data model is documented in **[docs/DATABASE.md](docs/DATABASE.md)**.
+
+---
+
+## 🔄 CI/CD & Deployment
+
+| Workflow | What it does |
+| --- | --- |
+| `ci.yml` | The main gate: supply-chain audit, backend, frontend, contracts, migrations, scripts, packages, formatting, ShellCheck, conflict markers, OpenAPI freshness, env-docs drift, E2E, and issue-backlog checks |
+| `codeql.yml` | Static analysis for TypeScript/JavaScript and Rust |
+| `deploy-staging.yml` | Builds and publishes images to GHCR, scans them with Trivy, then deploys |
+| `deploy-frontend.yml` | Deploys the frontend to Vercel on every push to `main` |
+| `commitlint.yml` | Enforces Conventional Commits on pull requests |
+| `dependency-review.yml` | Blocks dependency changes that introduce known vulnerabilities |
+| `loadtest.yml` | Load-testing harness for API endpoints |
+
+**Branch protection on `main`:** 13 required status checks, at least one approving review, linear history, and no force-pushes or branch deletion. Direct pushes that bypass checks are not possible; every change lands through a pull request.
+
+**Deployment:** the frontend deploys to Vercel; the API and its datastores run as containers (Postgres, Redis, API, frontend) with health checks and migration-on-boot. Contracts deploy through `scripts/deploy.ts`, which wires the four contracts to each other and writes the addresses to `scripts/deployments/`.
+
+---
+
+## 📚 Documentation
+
+| Resource | Description |
+| --- | --- |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Deep system architecture: components, data flow, security model, diagrams |
+| **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** | Setup, workflow and code quality across every component |
+| **[docs/TESTING.md](docs/TESTING.md)** | Testing strategy, commands and the CI pipeline |
+| **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)** | Complete environment-variable reference |
+| **[docs/DATABASE.md](docs/DATABASE.md)** | Schema, migrations and data model |
+| **[docs/ERROR_CODES.md](docs/ERROR_CODES.md)** | All 113 error codes and what each one means |
+| **[docs/GAS.md](docs/GAS.md)** | Gas and resource benchmarks with methodology |
+| **[docs/scoring-model.md](docs/scoring-model.md)** | Credit scoring formula, tiers and decay rules |
+| **[docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md)** | Threat model, trust boundaries and non-goals |
+| **[docs/contracts-ACCESS-CONTROL.md](docs/contracts-ACCESS-CONTROL.md)** | Permission matrix for all four contracts |
+| **[docs/deployed-contracts.md](docs/deployed-contracts.md)** | Deployed addresses and protocol parameters |
+| **[docs/webhooks.md](docs/webhooks.md)** | Webhook payloads, HMAC verification and retries |
+| **[docs/TRANSACTION_PREVIEW.md](docs/TRANSACTION_PREVIEW.md)** | Pre-signature fee and balance-change previews |
+| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** | Common failures and their fixes |
+| **[docs/DESIGN.md](docs/DESIGN.md)** · **[docs/LANDING_PAGE_DESIGN.md](docs/LANDING_PAGE_DESIGN.md)** | Design system and landing-page specification |
+| **[docs/wiki/](docs/wiki/README.md)** | 7 technical deep dives: contract state machine, indexer sync, JWT revocation, idempotency, webhook signatures, security scanning, frontend patterns |
+| **[docs/adr/](docs/adr/)** | Architecture Decision Records: contract architecture, event indexer, auth model |
+| **[docs/runbooks/](docs/runbooks/)** | Operational runbooks |
+| **[contracts/FUZZING_README.md](contracts/FUZZING_README.md)** | Fuzz targets, invariants and campaign scripts |
+| **[packages/sdk/README.md](packages/sdk/README.md)** | SDK usage, modules and examples |
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** · **[SECURITY.md](SECURITY.md)** · **[ROADMAP.md](ROADMAP.md)** | Contribution guide, security policy, roadmap |
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for detailed guidelines.
+Contributions are welcome, and this project is built to absorb them: **120 open issues**, each with a written specification in **[docs/contributor-issues/](docs/contributor-issues/)**, spanning contracts, backend, frontend, SDK, testing, documentation, security and CI.
 
-### Quick Start
+### Workflow
 
-1. Fork → Clone → Branch (`feat/amazing-feature`)
-2. Commit using [Conventional Commits](https://www.conventionalcommits.org/)
-3. Open a Pull Request — CI will validate automatically
+1. **Find an issue** — [good first issues](https://github.com/Ziza-Inc/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for a first contribution, or any issue labelled `help wanted`.
+2. **Fork and branch** — `feat/amazing-feature`, `fix/off-by-one`, `docs/clarify-setup`.
+3. **Build and test locally** — the commands in [Testing](#-testing) run exactly what CI runs.
+4. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`, `perf:`, `chore:`).
+5. **Open a pull request** — CI validates it, and `CODEOWNERS` routes the review.
 
-### Good First Issues
+| Branch prefix | Purpose |
+| --- | --- |
+| `feat/` | New features |
+| `fix/` | Bug fixes |
+| `docs/` | Documentation |
+| `refactor/` | Code refactoring |
+| `perf/` | Performance improvements |
+| `chore/` | Maintenance |
 
-Browse [good first issues](https://github.com/Ziza-Inc/ZizaLend/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) with detailed specs at **[docs/contributor-issues/](docs/contributor-issues/)**.
-
-### Branch Conventions
-
-| Prefix      | Purpose                  |
-| ----------- | ------------------------ |
-| `feat/`     | New features             |
-| `fix/`      | Bug fixes                |
-| `docs/`     | Documentation            |
-| `refactor/` | Code refactoring         |
-| `perf/`     | Performance improvements |
-| `chore/`    | Maintenance tasks        |
+Issue templates cover bugs, features and contract-security findings; the pull-request template asks for the verification you actually ran. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full guide.
 
 ---
 
@@ -571,38 +758,41 @@ Browse [good first issues](https://github.com/Ziza-Inc/ZizaLend/issues?q=is%3Ais
 
 ```
 ZizaLend/
-├── backend/                   # Express.js API (Node 22, TypeScript)
+├── backend/                    # Express 5 API (Node 22, TypeScript)
 │   ├── src/
-│   │   ├── controllers/       # Route handlers (13 controllers)
-│   │   ├── services/          # Business logic (16 services)
-│   │   ├── schemas/           # Zod validation schemas
-│   │   ├── config/            # Environment configuration
-│   │   ├── routes/            # Express route definitions
-│   │   ├── errors/            # Custom error classes
-│   │   ├── cron/              # Scheduled jobs
-│   │   └── utils/             # Utilities (logger, cache, pagination)
-│   ├── migrations/            # Database migrations (27 files)
-│   └── tests/                 # Integration tests
-├── frontend/                  # Next.js 16 (React 19)
-│   ├── src/
-│   │   ├── app/               # App Router pages (15 routes)
-│   │   ├── components/        # React components (UI, wallet, gamification)
-│   │   ├── hooks/             # Custom React hooks
-│   │   ├── stores/            # Zustand state stores (8 stores)
-│   │   └── lib/               # Utilities (Stellar, CSV, metadata)
-│   └── e2e/                   # Playwright E2E tests (11 spec files)
-├── contracts/                 # Soroban Rust smart contracts
-│   ├── remittance_nft/        # Credit identity NFT
-│   ├── loan_manager/          # Loan lifecycle
-│   ├── lending_pool/          # Liquidity pool
-│   ├── multisig_governance/   # Governance timelock
-│   └── fuzz/                  # Property-based fuzz testing
+│   │   ├── controllers/        # 13 route handlers
+│   │   ├── services/           # 19 service modules
+│   │   ├── routes/             # 12 route groups, 79 endpoints
+│   │   ├── schemas/            # Zod validation schemas
+│   │   ├── middleware/         # Auth, RBAC, rate limiting, idempotency, errors
+│   │   ├── config/             # Environment, Stellar and domain configuration
+│   │   ├── cron/               # Scheduled jobs
+│   │   ├── errors/             # Typed error taxonomy
+│   │   └── utils/              # Logger, key-value store, pagination
+│   ├── migrations/             # 34 versioned migrations
+│   └── tests/                  # Integration and cross-cutting suites
+├── frontend/                   # Next.js 16 (React 19, Tailwind 4)
+│   ├── src/app/                # App Router: 21 routes under [locale]
+│   ├── src/components/         # UI, wallet, loan wizard, gamification
+│   ├── src/hooks/              # Data, SSE and toast hooks
+│   ├── src/stores/             # Zustand stores
+│   ├── messages/               # en / es / tl translations
+│   └── e2e/                    # 11 Playwright specs
+├── contracts/                  # Soroban contracts (Rust)
+│   ├── remittance_nft/         # Credit identity and collateral
+│   ├── loan_manager/           # Loan lifecycle
+│   ├── lending_pool/           # Liquidity and yield
+│   ├── multisig_governance/    # Timelocked administration
+│   ├── tests/                  # Cross-contract integration tests
+│   └── fuzz/                   # 5 property-based targets
 ├── packages/
-│   ├── types/                 # Auto-generated types from OpenAPI
-│   └── sdk/                   # Typed API client SDK
-├── scripts/                   # Deployment and utility scripts
-├── docs/                      # Documentation, ADRs, wiki, runbooks
-└── .github/                   # CI/CD workflows, issue templates
+│   ├── types/                  # Types generated from OpenAPI
+│   ├── sdk/                    # Typed API client
+│   └── openapi.json            # Generated specification
+├── scripts/                    # Deploy, smoke test, gas benchmark, doc and issue generators
+│   └── video/                  # Pitch-video pipeline (capture → narration → render → verify)
+├── docs/                       # Guides, ADRs, wiki, runbooks, contributor issue specs
+└── .github/                    # 7 workflows, 4 issue templates, CODEOWNERS, Dependabot
 ```
 
 ---
@@ -610,18 +800,27 @@ ZizaLend/
 ## 📊 Project Stats
 
 | Metric | Value |
-| -------------------- | ---------------------------------------------------------------------- |
-| Smart Contracts | 4 Soroban (Rust) contracts, deployed and wired on Testnet |
-| Contract Tests | 344 passing; coverage gated at 75% in CI |
-| Backend | 18 service modules and 13 controllers behind 50+ REST endpoints |
-| Backend Tests | 530 passing |
-| Frontend Tests | 190 unit tests across 20 suites, plus 11 Playwright E2E specs |
-| Database Migrations | 34 versioned migrations |
-| Fuzz Targets | 5 property-based targets across all 4 contracts |
-| Error Codes | 113 typed codes, generated and checked in CI |
-| CI Workflows | 7 workflows, 13 required status checks on `main` |
-| Pitch Video | 4 minutes on [YouTube](https://youtu.be/2ZST7YiZ1Uk), built and self-verified by `scripts/video/build.mjs` |
-| Supported Locales | English, Spanish, Tagalog |
+| --- | --- |
+| Smart contracts | 4 Soroban (Rust) contracts, deployed, wired and verified on Testnet |
+| Contract tests | 344 passing; coverage gated at 75% in CI |
+| Contract size | 31–89 KB WASM per contract, size-gated in CI |
+| Backend | 19 service modules, 13 controllers, 79 REST endpoints across 12 route groups |
+| Backend tests | 565 passing across 84 suites |
+| Frontend | 21 routes, 3 locales (EN / ES / TL), PWA-installable |
+| Frontend tests | 201 unit tests across 20 suites, plus 11 Playwright E2E specs |
+| Database migrations | 34 versioned migrations |
+| Fuzz targets | 5 property-based targets across all 4 contracts |
+| Error codes | 113 typed codes (80 contract, 33 API), generated and checked in CI |
+| CI | 7 workflows, 13 required status checks on `main` |
+| Open issues | 120, each with a written specification for contributors |
+| Documentation | 15 guides under `docs/`, plus `ARCHITECTURE.md`, 3 ADRs, 7 wiki deep dives and runbooks |
+| Pitch video | 4 minutes on [YouTube](https://youtu.be/2ZST7YiZ1Uk), built and self-verified by `scripts/video/build.mjs` |
+
+---
+
+## 🗺 Roadmap
+
+Planned work — including Mainnet readiness, additional remittance corridors and SDK expansion — is tracked in **[ROADMAP.md](ROADMAP.md)**. Short-term direction is visible in the [open issues](https://github.com/Ziza-Inc/ZizaLend/issues); anything not written down there is not planned.
 
 ---
 
@@ -634,5 +833,5 @@ ISC License — see [LICENSE](LICENSE) for details.
 <div align="center">
   <sub>Built on <a href="https://stellar.org">Stellar</a> • Powered by <a href="https://soroban.stellar.org">Soroban</a></sub>
   <br/>
-  <sub>Zizalend — Every transfer builds your future</sub>
+  <sub>ZizaLend — every transfer builds your future</sub>
 </div>
