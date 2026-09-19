@@ -8,9 +8,20 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+concurrency:
+  # Superseded pull-request analyses are cancelled, but a run on the default branch is not:
+  # the weekly scheduled scan and a push scan would otherwise cancel each other, and a
+  # cancelled analysis reports no security result at all.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # The rust leg compiles the whole Soroban workspace before CodeQL can analyse it, so this
+    # is the most expensive job in the repository. It is worth a long budget: CodeQL failing on
+    # a timeout tells you nothing about the code.
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     permissions:
       security-events: write
