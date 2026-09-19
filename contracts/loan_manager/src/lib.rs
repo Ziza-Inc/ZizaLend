@@ -1721,6 +1721,12 @@ impl LoanManager {
     /// configured bonus capped by the surplus, and any remaining surplus is
     /// refunded to the borrower; otherwise all collateral goes to debt recovery.
     ///
+    /// The loan's principal is retired from the lending pool's outstanding balance, as
+    /// it is on the default and repayment paths. A liquidated loan is closed -- no
+    /// further repayment can arrive for it -- and the pool's counter is what the
+    /// lenders' share price is derived from, so a closed loan that kept counting would
+    /// report the shortfall as still-deployed capital.
+    ///
     /// Returns [`LoanError::ContractPaused`], [`LoanError::PoolPaused`], or
     /// [`LoanError::NftPaused`] when pause checks fail; [`LoanError::LoanNotFound`]
     /// when `loan_id` is unknown; [`LoanError::LoanNotActive`] when the loan is
@@ -1808,6 +1814,14 @@ impl LoanManager {
             .get(&DataKey::LendingPool)
             .expect("lending pool not set");
         let token_client = TokenClient::new(&env, &token);
+
+        // A liquidated loan is closed: no further repayment will ever arrive for it, so
+        // its principal must stop counting towards the pool's outstanding balance. That
+        // counter is what the lenders' share price is derived from, so leaving it
+        // inflated here would report the shortfall as still-deployed capital and
+        // attribute the missing value to nobody. `apply_default` retires the same amount
+        // on the default path; this is the mirror of it.
+        PoolClient::new(&env, &lending_pool).settle_outstanding(&token, &loan.amount);
 
         if debt_repaid > 0 {
             token_client.transfer(&env.current_contract_address(), &lending_pool, &debt_repaid);

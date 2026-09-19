@@ -4292,3 +4292,220 @@ fn test_set_rate_oracle_emits_rate_oracle_updated_event() {
         "RateOracleUpdated event should be emitted"
     );
 }
+
+// ── Liquidation accounting: dust-sized debt and pool reconciliation ──────────
+//
+// A liquidated loan is closed: the borrower's obligation is gone and the pool will
+// never receive another repayment for it. The pool's `total_outstanding` counter is
+// what the lenders' share price is derived from, so a closed loan that keeps
+// counting towards it leaves the counter permanently inflated -- utilization reads
+// high, the share price reads low, and the difference is attributed to nobody.
+//
+// `apply_default` already retires the principal when a loan defaults. These tests
+// pin the same property for liquidation, including the dust-sized end of the range
+// where the collateral, the bonus, and the proportional split all round.
+
+/// Assert the pool's outstanding counter equals the principal of the live loans.
+///
+/// This is the reconciliation the pool and the manager must agree on: the counter is
+/// only correct if every closed loan -- repaid, defaulted, cancelled, or liquidated --
+/// has retired its principal, and every live one has contributed its own.
+fn assert_outstanding_reconciles(
+    manager: &LoanManagerClient,
+    pool_client: &LendingPoolClient,
+    token_id: &Address,
+    loan_ids: &[u32],
+) {
+    let live_principal: i128 = loan_ids
+        .iter()
+        .map(|id| manager.get_loan(id))
+        .filter(|loan| loan.status == LoanStatus::Approved)
+        .map(|loan| loan.amount)
+        .sum();
+
+    assert_eq!(
+        pool_client.get_total_outstanding(token_id),
+        live_principal,
+        "total_outstanding must equal the principal of every live loan"
+    );
+}
+
+#[test]
+fn test_liquidation_retires_the_principal_from_pool_outstanding() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_addr, token_id, _admin) = setup_test(&env);
+    let pool_client = LendingPoolClient::new(&env, &pool_addr);
+    let borrower = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+
+    nft_client.mint(
+        &borrower,
+        &650,
+        &BytesN::from_array(&env, &[3u8; 32]),
+        &String::from_str(&env, "ipfs://QmLiquidationPrincipal"),
+        &None,
+    );
+
+    let stellar = StellarAssetClient::new(&env, &token_id);
+    stellar.mint(&pool_addr, &20_000);
+    stellar.mint(&borrower, &20_000);
+
+    manager.set_liquidation_threshold(&15_000);
+
+    let loan_id = manager.request_loan(&borrower, &1_000, &17_280);
+    manager.approve_loan(&loan_id);
+    // Approving disbursed the principal, so the pool counts it as outstanding.
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 1_000);
+
+    manager.deposit_collateral(&loan_id, &900);
+    manager.liquidate(&liquidator, &loan_id);
+
+    assert_eq!(manager.get_loan(&loan_id).status, LoanStatus::Liquidated);
+    assert_eq!(manager.get_collateral(&loan_id), 0);
+    assert_eq!(
+        pool_client.get_total_outstanding(&token_id),
+        0,
+        "a liquidated loan is closed, so its principal must stop counting as outstanding"
+    );
+    assert_outstanding_reconciles(&manager, &pool_client, &token_id, &[loan_id]);
+}
+
+#[test]
+fn test_reconciliation_holds_across_repay_liquidate_and_live_loans() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_addr, token_id, _admin) = setup_test(&env);
+    let pool_client = LendingPoolClient::new(&env, &pool_addr);
+    let borrower = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+
+    nft_client.mint(
+        &borrower,
+        &700,
+        &BytesN::from_array(&env, &[4u8; 32]),
+        &String::from_str(&env, "ipfs://QmReconcile"),
+        &None,
+    );
+
+    let stellar = StellarAssetClient::new(&env, &token_id);
+    let token_client = TokenClient::new(&env, &token_id);
+    stellar.mint(&pool_addr, &50_000);
+    stellar.mint(&borrower, &50_000);
+
+    manager.set_liquidation_threshold(&15_000);
+
+    // Three loans, taken to three different terminal-or-live states.
+    let repaid_id = manager.request_loan(&borrower, &1_000, &17_280);
+    let liquidated_id = manager.request_loan(&borrower, &2_000, &17_280);
+    let live_id = manager.request_loan(&borrower, &3_000, &17_280);
+
+    for id in [repaid_id, liquidated_id, live_id] {
+        manager.approve_loan(&id);
+    }
+    assert_eq!(pool_client.get_total_outstanding(&token_id), 6_000);
+    assert_outstanding_reconciles(
+        &manager,
+        &pool_client,
+        &token_id,
+        &[repaid_id, liquidated_id, live_id],
+    );
+
+    // 1. Repaid in full: the pool takes back the principal plus interest.
+    let repaid = manager.get_loan(&repaid_id);
+    let owed = repaid.amount + repaid.accrued_interest + repaid.accrued_late_fee;
+    token_client.transfer(&borrower, &pool_addr, &owed);
+    manager.repay(&borrower, &repaid_id, &owed);
+    assert_eq!(manager.get_loan(&repaid_id).status, LoanStatus::Repaid);
+
+    // 2. Liquidated: closed, so its principal must leave the counter.
+    manager.deposit_collateral(&liquidated_id, &1_800);
+    manager.liquidate(&liquidator, &liquidated_id);
+
+    // 3. Left live and still counting.
+    assert_eq!(manager.get_loan(&live_id).status, LoanStatus::Approved);
+
+    assert_outstanding_reconciles(
+        &manager,
+        &pool_client,
+        &token_id,
+        &[repaid_id, liquidated_id, live_id],
+    );
+    assert_eq!(
+        pool_client.get_total_outstanding(&token_id),
+        3_000,
+        "only the live loan's principal may remain outstanding"
+    );
+}
+
+#[test]
+fn test_dust_sized_liquidation_is_refused_or_accounted_for_exactly() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (manager, nft_client, pool_addr, token_id, _admin) = setup_test(&env);
+    let pool_client = LendingPoolClient::new(&env, &pool_addr);
+    let borrower = Address::generate(&env);
+    let liquidator = Address::generate(&env);
+
+    nft_client.mint(
+        &borrower,
+        &650,
+        &BytesN::from_array(&env, &[5u8; 32]),
+        &String::from_str(&env, "ipfs://QmDustLiquidation"),
+        &None,
+    );
+
+    // The minimum creditable repayment is the floor a dust position sits on. The
+    // fixture zeroes the *NFT's* copy to keep other tests quiet, but the manager
+    // keeps its own and falls back to the default, so the floor under test is 100.
+    assert_eq!(manager.get_min_repayment_amount(), 100);
+
+    let stellar = StellarAssetClient::new(&env, &token_id);
+    let token_client = TokenClient::new(&env, &token_id);
+    stellar.mint(&pool_addr, &20_000);
+    stellar.mint(&borrower, &20_000);
+
+    manager.set_liquidation_threshold(&15_000);
+
+    // Sweep the floor and the units just above it: the bonus is
+    // `collateral * bonus_bps / 10_000`, which rounds to zero on a small enough
+    // collateral, and the repayment split divides the recovered amount three ways.
+    for amount in [1_i128, 2, 99, 100, 101] {
+        let loan_id = manager.request_loan(&borrower, &amount, &17_280);
+        manager.approve_loan(&loan_id);
+        assert_eq!(pool_client.get_total_outstanding(&token_id), amount);
+
+        // Collateral below the 150 % threshold makes the loan liquidatable, and
+        // deliberately below the debt so the recovery path is the shortfall one.
+        let collateral = amount - 1;
+        if collateral > 0 {
+            manager.deposit_collateral(&loan_id, &collateral);
+        }
+
+        let pool_before = token_client.balance(&pool_addr);
+        manager.liquidate(&liquidator, &loan_id);
+
+        let loan = manager.get_loan(&loan_id);
+        assert_eq!(loan.status, LoanStatus::Liquidated);
+        assert_eq!(loan.collateral_amount, 0);
+        // The recovery is bounded by the collateral actually seized: a liquidator
+        // is never paid a bonus out of debt that was not recovered.
+        let recovered = token_client.balance(&pool_addr) - pool_before;
+        assert!(
+            recovered >= 0 && recovered <= collateral,
+            "recovery {recovered} must be within [0, {collateral}] for a dust loan of {amount}"
+        );
+        assert_eq!(manager.get_collateral(&loan_id), 0);
+
+        // Closed means retired, whatever the collateral was worth.
+        assert_eq!(
+            pool_client.get_total_outstanding(&token_id),
+            0,
+            "dust loan of {amount} must not leave outstanding behind"
+        );
+        assert_outstanding_reconciles(&manager, &pool_client, &token_id, &[loan_id]);
+    }
+}
