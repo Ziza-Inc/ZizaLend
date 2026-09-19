@@ -2,44 +2,19 @@
  * Health check module.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface HealthCheckResponse {
-  status: 'ok' | 'degraded' | 'down';
-  checks: {
-    database: 'ok' | 'error';
-    redis: 'ok' | 'error';
-    soroban_rpc: 'ok' | 'error';
-  };
-  uptime: number;
-  timestamp: number;
-}
+// Spec-derived, as in `loans.ts`. The nested check statuses used to be hand-written literal
+// unions here; they now come from the spec's enums, which is where the backend's actual values
+// are recorded.
+export type HealthCheckResponse = components['schemas']['HealthCheckResponse'];
 
-export interface DeepHealthCheckResponse {
-  status: 'ok' | 'degraded' | 'down';
-  checks: {
-    db: 'ok' | 'down';
-    redis: 'ok' | 'down';
-    stellarRpc: 'ok' | 'down';
-    indexer: {
-      status: 'ok' | 'degraded' | 'down';
-      lagLedgers: number | null;
-    };
-  };
-  timestamp: number;
-}
+export type DeepHealthCheckResponse =
+  components['schemas']['DeepHealthCheckResponse'];
 
-export interface VersionResponse {
-  gitSha: string;
-  builtAt: string;
-  nodeVersion: string;
-  contracts: {
-    loanManager: string;
-    lendingPool: string;
-    remittanceNft: string;
-    multisigGovernance: string;
-  };
-}
+export type VersionResponse = components['schemas']['VersionResponse'];
 
 export class Health {
   constructor(private client: Client) {}

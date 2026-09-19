@@ -35,6 +35,20 @@ export interface ClientConfig {
    * an hour cannot pin a client for an hour.
    */
   maxRetryDelayMs?: number;
+  /**
+   * Whether the client may generate its own replay key for a state-changing request.
+   *
+   * Default `true`. A request that times out is not a request that failed: the server may have
+   * received it, processed it and written a transaction, with only the response lost. Replaying
+   * it would re-execute the work, so a POST or PATCH is retried only when it carries a replay
+   * key the server can deduplicate on. With this enabled the client mints one `Idempotency-Key`
+   * per logical operation and reuses it across every attempt.
+   *
+   * Set `false` to send state-changing requests exactly once. They are then never retried
+   * unless the caller supplies its own `Idempotency-Key` header, which is the caller asserting
+   * that its backend honours one.
+   */
+  autoIdempotencyKey?: boolean;
 }
 
 export interface ApiResponse<T> {
@@ -136,6 +150,99 @@ const TRANSIENT_STATUS_CODES = new Set([429, 502, 503, 504]);
 /** Statuses whose `Retry-After` the client honours. */
 const RETRY_AFTER_STATUS_CODES = new Set([429, 503]);
 
+/**
+ * Methods a retry can repeat safely, per RFC 9110 §9.2.2.
+ *
+ * Everything absent from this set — POST and PATCH, in practice — may have taken effect on an
+ * attempt whose *response* was lost, so a second attempt is a second effect unless the server
+ * can recognise the replay.
+ */
+export const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
+
+/**
+ * The header a replay key travels in.
+ *
+ * Spelled the way Stripe and the IETF draft spell it, because the backend middleware that
+ * deduplicates on it reads this name.
+ */
+export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+
+/**
+ * Mint a replay key for one logical operation.
+ *
+ * Exactly one of these is created per `request()` call and attached to every attempt of that
+ * call, which is the whole property: two attempts that carry the same key are one operation to
+ * a server that deduplicates on it, and two attempts that carry different keys are two.
+ */
+export function generateIdempotencyKey(): string {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof webCrypto?.randomUUID === 'function') {
+    return webCrypto.randomUUID();
+  }
+
+  // Runtimes without a UUID source. The value only has to be unique per operation, and an
+  // unguessable key is not a security boundary here — the server scopes it to the caller — so
+  // a timestamp plus randomness is enough rather than a dependency.
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** Read one header out of any `HeadersInit` shape, case-insensitively. */
+function readHeader(headers: HeadersInit | undefined, name: string): string | null {
+  if (!headers) return null;
+
+  const target = name.toLowerCase();
+
+  if (typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(target) ?? null;
+  }
+
+  if (Array.isArray(headers)) {
+    const entry = headers.find(([key]) => key.toLowerCase() === target);
+    return entry ? entry[1] : null;
+  }
+
+  for (const [key, value] of Object.entries(headers as Record<string, string | undefined>)) {
+    if (key.toLowerCase() === target && typeof value === 'string') return value;
+  }
+
+  return null;
+}
+
+/**
+ * Copy any `HeadersInit` shape into a plain object and set one header on it.
+ *
+ * `executeFetch` already reduces the caller's headers to a plain object, so this only has to
+ * preserve that behaviour while accepting the two shapes `HeadersInit` also allows — a
+ * `Headers` instance and an entry array — instead of silently dropping them when a replay key
+ * is added.
+ */
+function withHeader(
+  headers: HeadersInit | undefined,
+  name: string,
+  value: string,
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+
+  if (headers) {
+    if (Array.isArray(headers)) {
+      for (const [key, entryValue] of headers) merged[key] = entryValue;
+    } else if (typeof (headers as Headers).forEach === 'function') {
+      (headers as Headers).forEach((entryValue, key) => {
+        merged[key] = entryValue;
+      });
+    } else {
+      for (const [key, entryValue] of Object.entries(
+        headers as Record<string, string | undefined>,
+      )) {
+        if (typeof entryValue === 'string') merged[key] = entryValue;
+      }
+    }
+  }
+
+  merged[name] = value;
+  return merged;
+}
+
 /** Default ceiling on a single backoff wait, in milliseconds. */
 export const DEFAULT_MAX_RETRY_DELAY_MS = 30_000;
 
@@ -198,6 +305,7 @@ export class Client {
     maxRetries: number;
     totalTimeoutMs: number | undefined;
     maxRetryDelayMs: number;
+    autoIdempotencyKey: boolean;
   };
 
   constructor(config: ClientConfig) {
@@ -209,6 +317,7 @@ export class Client {
       maxRetries: config.maxRetries ?? 3,
       totalTimeoutMs: config.totalTimeoutMs,
       maxRetryDelayMs: config.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS,
+      autoIdempotencyKey: config.autoIdempotencyKey ?? true,
     };
   }
 
@@ -359,6 +468,24 @@ export class Client {
 
     let lastError: Error | null = null;
 
+    // A retry only repeats the same operation if the server can tell that it is the same
+    // operation. A method RFC 9110 calls idempotent needs no help; anything else is retried
+    // while it carries a key the server can deduplicate on, and not otherwise. The key is
+    // minted once, here, so every attempt of this call carries the same one — two attempts
+    // under one key are one operation, two attempts under different keys are two.
+    const method = (init.method ?? 'GET').toUpperCase();
+    const callerKey = readHeader(init.headers, IDEMPOTENCY_KEY_HEADER);
+    const replayKey =
+      callerKey ??
+      (!IDEMPOTENT_METHODS.has(method) && this.config.autoIdempotencyKey
+        ? generateIdempotencyKey()
+        : null);
+
+    const mayRetry = IDEMPOTENT_METHODS.has(method) || replayKey !== null;
+
+    const attemptInit: RequestInit =
+      replayKey === null ? init : { ...init, headers: withHeader(init.headers, IDEMPOTENCY_KEY_HEADER, replayKey) };
+
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
       if (deadlineAt !== null && Date.now() >= deadlineAt) {
         throw deadlineError();
@@ -372,7 +499,7 @@ export class Client {
       const attemptTimeoutMs = Math.min(this.config.timeoutMs, remainingMs);
 
       try {
-        const response = await this.executeFetch(url, init, attemptTimeoutMs);
+        const response = await this.executeFetch(url, attemptInit, attemptTimeoutMs);
         const body = await response.json() as ApiResponse<unknown>;
 
         if (!response.ok) {
@@ -389,8 +516,8 @@ export class Client {
             throw apiError;
           }
 
-          // On last attempt, throw
-          if (attempt >= this.config.maxRetries) {
+          // On the last attempt, or when the method is not safe to repeat, throw
+          if (attempt >= this.config.maxRetries || !mayRetry) {
             throw apiError;
           }
 
@@ -424,8 +551,10 @@ export class Client {
           throw deadlineError();
         }
 
-        // Network / timeout errors are transient
-        if (attempt >= this.config.maxRetries) {
+        // Network / timeout errors are transient, but "the response was lost" is not "the
+        // request did not happen": a state-changing request is only repeated when it carries
+        // a replay key the server can refuse the second effect on.
+        if (attempt >= this.config.maxRetries || !mayRetry) {
           throw error;
         }
 

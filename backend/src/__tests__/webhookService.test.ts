@@ -6,6 +6,27 @@ const mockQuery: jest.MockedFunction<
   (text: string, params?: unknown[]) => Promise<MockQueryResult>
 > = jest.fn();
 
+/** The address every host resolves to unless a test says otherwise. Public, so it is allowed. */
+const PUBLIC_ADDRESS = '93.184.216.34';
+
+/** The one host that resolves somewhere private, for the refusal tests. */
+const PRIVATE_HOST = 'rebind.example';
+
+// Delivery now resolves the callback host before connecting (the SSRF guard), so these tests
+// must not depend on real DNS: the names they use — `consumer.example`, `hook.example` — are in
+// a reserved TLD that never resolves, and a test that needed the network would be a test that
+// fails for reasons of its own.
+const mockDnsLookup = jest.fn(async (hostname: string) => [
+  hostname === PRIVATE_HOST
+    ? { address: '127.0.0.1', family: 4 }
+    : { address: PUBLIC_ADDRESS, family: 4 },
+]);
+
+jest.unstable_mockModule('node:dns/promises', () => ({
+  lookup: mockDnsLookup,
+  default: { lookup: mockDnsLookup },
+}));
+
 jest.unstable_mockModule('../db/connection.js', () => ({
   default: { query: mockQuery },
   query: mockQuery,
@@ -13,7 +34,8 @@ jest.unstable_mockModule('../db/connection.js', () => ({
   closePool: jest.fn(),
 }));
 
-const { WebhookService, getRetryDelayMs } = await import('../services/webhookService.js');
+const { WebhookService, getRetryDelayMs, MAX_WEBHOOK_REDIRECTS } =
+  await import('../services/webhookService.js');
 const { default: logger } = await import('../utils/logger.js');
 
 describe('WebhookService', () => {
@@ -519,6 +541,179 @@ describe('WebhookService', () => {
         JSON.stringify(['LoanRepaid']),
       ]);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── Outbound URL vetting (SSRF) ────────────────────────────────────────────
+  //
+  // A subscriber chooses where the server sends a request. These pin the two things that make
+  // that acceptable: the host is resolved before connecting, and a redirect is vetted hop by hop
+  // rather than followed by the runtime.
+
+  describe('unsafe callback URLs', () => {
+    /** A response shaped like a redirect, carrying a Location header. */
+    const redirectTo = (location: string) => ({
+      ok: false,
+      status: 302,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'location' ? location : null),
+      },
+    });
+
+    const dispatchEvent = async (service: InstanceType<typeof WebhookService>) => {
+      await service.dispatch({
+        eventId: 'evt-ssrf',
+        eventType: 'LoanApproved',
+        loanId: 42,
+        address: 'GBORROWER123',
+        ledger: 100,
+        ledgerClosedAt: new Date('2025-01-01T00:00:00.000Z'),
+        txHash: 'tx-ssrf',
+        contractId: 'contract-123',
+        topics: [],
+        value: 'value-xdr',
+      });
+    };
+
+    it('sends nothing to a host that resolves to a loopback address', async () => {
+      const fetchMock = jest.fn();
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, callback_url: `https://${PRIVATE_HOST}`, secret: null }],
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await dispatchEvent(new WebhookService());
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      // The insert writes `attempt_count` as a literal 0 and leaves `next_retry_at` NULL: the
+      // refusal is recorded so it is visible, but nothing was attempted and none is scheduled,
+      // because retrying cannot change where the name points today.
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO webhook_deliveries'),
+        [
+          1,
+          'evt-ssrf',
+          'LoanApproved',
+          expect.stringContaining('resolves to a private'),
+          expect.any(String),
+        ],
+      );
+      expect(mockQuery.mock.calls[1]![0]).toContain('VALUES ($1, $2, $3, 0, $4, $5::jsonb, NULL)');
+    });
+
+    it('refuses a redirect to a link-local address', async () => {
+      const fetchMock = jest.fn();
+      fetchMock.mockResolvedValue(redirectTo('https://169.254.169.254/latest/meta-data/'));
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, callback_url: 'https://consumer.example', secret: null }],
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await dispatchEvent(new WebhookService());
+
+      // Exactly one request, to the address that was subscribed to. The metadata endpoint the
+      // redirect pointed at is never contacted.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://consumer.example');
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO webhook_deliveries'),
+        [
+          1,
+          'evt-ssrf',
+          'LoanApproved',
+          expect.stringContaining('private, loopback, or link-local'),
+          expect.any(String),
+        ],
+      );
+    });
+
+    it('refuses a redirect to a plaintext scheme', async () => {
+      const fetchMock = jest.fn();
+      fetchMock.mockResolvedValue(redirectTo('http://169.254.169.254/'));
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, callback_url: 'https://consumer.example', secret: null }],
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await dispatchEvent(new WebhookService());
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO webhook_deliveries'),
+        [
+          1,
+          'evt-ssrf',
+          'LoanApproved',
+          expect.stringContaining('must use https'),
+          expect.any(String),
+        ],
+      );
+    });
+
+    it('follows a redirect to another public endpoint', async () => {
+      const fetchMock = jest.fn();
+      fetchMock
+        .mockResolvedValueOnce(redirectTo('https://second.example/hook'))
+        .mockResolvedValueOnce({ ok: true, status: 200 });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, callback_url: 'https://consumer.example', secret: null }],
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await dispatchEvent(new WebhookService());
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]![0]).toBe('https://second.example/hook');
+      // Vetted by hand, so the runtime is never allowed to walk the chain privately.
+      for (const call of fetchMock.mock.calls) {
+        expect((call[1] as RequestInit).redirect).toBe('manual');
+      }
+    });
+
+    it('gives up on a redirect chain that never ends', async () => {
+      const fetchMock = jest.fn();
+      fetchMock.mockResolvedValue(redirectTo('https://loop.example/hook'));
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [{ id: 1, callback_url: 'https://consumer.example', secret: null }],
+        })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await dispatchEvent(new WebhookService());
+
+      // One request to the subscribed URL plus one per hop, and no more than the cap.
+      expect(fetchMock).toHaveBeenCalledTimes(MAX_WEBHOOK_REDIRECTS + 1);
+      // A chain that never ends is recorded as a failed attempt rather than a refusal: the
+      // endpoint was reachable, so it takes the ordinary retry path.
+      expect(mockQuery).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('INSERT INTO webhook_deliveries'),
+        [
+          1,
+          'evt-ssrf',
+          'LoanApproved',
+          expect.stringContaining('redirect chain exceeded'),
+          expect.any(String),
+          expect.any(Date),
+        ],
+      );
     });
   });
 });

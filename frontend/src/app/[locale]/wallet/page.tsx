@@ -18,6 +18,7 @@ import { CopyButton } from "../../components/ui/CopyButton";
 import { PaginationControls } from "../../components/ui/PaginationControls";
 import { Spinner } from "../../components/global_ui/Spinner";
 import { TransactionsSkeleton } from "../../components/skeletons/TransactionsSkeleton";
+import { formatAmount } from "@/app/utils/amount";
 import { ErrorBoundary } from "../../components/global_ui/ErrorBoundary";
 import { downloadCsv, rowsToCsv } from "../../utils/csv";
 import {
@@ -205,8 +206,11 @@ function BalancesCard({ address, horizonUrl }: { address: string; horizonUrl: st
   }
 
   function formatBalance(b: HorizonBalance): string {
-    const num = parseFloat(b.balance);
-    return isNaN(num) ? b.balance : num.toLocaleString("en-US", { maximumFractionDigits: 7 });
+    // Horizon reports a balance as a decimal string, so it is formatted as one. `parseFloat`
+    // followed by `toLocaleString` was a double round-trip, which is lossy for exactly the
+    // large balances a wallet is most likely to hold. Falls back to the raw string when Horizon
+    // sends something that is not a decimal at all, rather than showing nothing.
+    return formatAmount(b.balance, { maximumFractionDigits: 7 }) || b.balance;
   }
 
   return (
@@ -326,7 +330,7 @@ function TransactionHistoryCard({
   function paymentAmount(p: HorizonPayment): string {
     if (!p.amount) return "—";
     const asset = p.asset_type === "native" ? "XLM" : (p.asset_code ?? "");
-    return `${parseFloat(p.amount).toLocaleString("en-US", { maximumFractionDigits: 7 })} ${asset}`;
+    return `${formatAmount(p.amount, { maximumFractionDigits: 7 })} ${asset}`;
   }
 
   function exportCsv() {

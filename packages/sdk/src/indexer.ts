@@ -4,6 +4,8 @@
  * Event indexer management, webhook subscriptions, and admin operations.
  */
 
+import type { components } from "@zizalend/types";
+
 import { Client } from "./client.js";
 import {
   collectPages,
@@ -12,66 +14,24 @@ import {
 } from "./pagination.js";
 import type { PaginatedEventsResponse, LoanEventRecord } from "./events.js";
 
-export interface IndexerStatusData {
-  lastIndexedLedger: number;
-  lastIndexedCursor: string | null;
-  lastUpdated: string;
-  totalEvents: number;
-  eventsByType: Record<string, number>;
-}
+// Spec-derived, as in `loans.ts`.
+export type IndexerStatusData = components['schemas']['IndexerStatusData'];
 
-export interface IndexerStatusResponse {
-  success: boolean;
-  data: IndexerStatusData;
-}
+export type IndexerStatusResponse =
+  components['schemas']['IndexerStatusResponse'];
 
-export interface WebhookSubscription {
-  id: number;
-  callbackUrl: string;
-  eventTypes: string[];
-  secret?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+export type WebhookSubscription =
+  components['schemas']['WebhookSubscription'];
 
-export interface CreateWebhookSubscriptionInput {
-  callbackUrl: string;
-  eventTypes: string[];
-  secret?: string;
-}
+export type CreateWebhookSubscriptionInput =
+  components['schemas']['CreateWebhookSubscriptionInput'];
 
-export interface WebhookDelivery {
-  id: number;
-  subscriptionId: number;
-  eventId: string;
-  eventType: string;
-  attemptCount: number;
-  lastStatusCode?: number;
-  lastError?: string;
-  deliveredAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export type WebhookDelivery = components['schemas']['WebhookDelivery'];
 
-export interface ReindexResult {
-  fromLedger: number;
-  toLedger: number;
-  fetchedEvents: number;
-  insertedEvents: number;
-  lastProcessedLedger: number;
-}
+export type ReindexResult = components['schemas']['ReindexResult'];
 
-export interface DefaultCheckRunResult {
-  runId: string;
-  currentLedger: number;
-  termLedgers: number;
-  overdueCount: number;
-  loansChecked: number;
-  successfulSubmissions: number;
-  failedSubmissions: number;
-  batches: Array<Record<string, unknown>>;
-}
+export type DefaultCheckRunResult =
+  components['schemas']['DefaultCheckRunResult'];
 
 export class Indexer {
   constructor(private client: Client) {}

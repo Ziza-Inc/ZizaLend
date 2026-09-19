@@ -8,6 +8,27 @@ const createJestConfig = nextJest({
 const customJestConfig = {
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   testEnvironment: "jest-environment-jsdom",
+
+  // Coverage is measured on every CI run (`npm run test:coverage`). What is measured is stated
+  // rather than inferred: the default is "the files the suite imported", which would report a
+  // component with no test as absent instead of as uncovered — the one thing this is for.
+  collectCoverageFrom: [
+    "src/**/*.{ts,tsx}",
+    "!src/**/*.test.{ts,tsx}",
+    "!src/**/*.d.ts",
+    "!src/**/__mocks__/**",
+    // Type declarations and the generated i18n catalogue: no statements to execute.
+    "!src/types/**",
+  ],
+  coverageDirectory: "coverage",
+  // `json-summary` is what the CI summary step reads; `text` and `lcov` are for a human looking at
+  // the same run.
+  coverageReporters: ["text", "json-summary", "lcov"],
+
+  // The floors are not here: they live in `coverage-thresholds.json` and are enforced by
+  // `scripts/check-coverage-thresholds.mjs`, which is what `npm run test:coverage` runs after Jest.
+  // One file holds them because the same file is what the ratchet check compares against the base
+  // branch, and two sources would disagree the first time someone updated one of them.
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
   },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency } from "@/app/utils/amount";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -18,10 +19,6 @@ import { LoanHealth } from "../../../components/loan/LoanHealth";
 import { downloadCsv, rowsToCsv } from "../../../utils/csv";
 
 import CollateralActionModal from "@/app/components/transaction/CollateralActionModal";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-}
 
 function formatDate(iso: string | undefined) {
   if (!iso) return "—";

@@ -2,6 +2,13 @@ import type { NextFunction, Request, Response } from 'express';
 import client from 'prom-client';
 import { query } from '../db/connection.js';
 import logger from '../utils/logger.js';
+import {
+  UNMATCHED_ROUTE,
+  normaliseMethod,
+  normaliseRouteLabel,
+  normaliseStatusCode,
+  statusClassFor,
+} from './metricsLabels.js';
 
 export const metricsRegistry = new client.Registry();
 
@@ -64,17 +71,50 @@ export const httpRequestsInFlightGauge = new client.Gauge({
   registers: [metricsRegistry],
 });
 
+/**
+ * The `route` label for a request: the matched template, with its mount prefix restored.
+ *
+ * `/api/v1/loans/1012` becomes `/api/v1/loans/:loanId`, so one series covers every loan while the
+ * API version and the router stay distinguishable — reading `req.baseUrl` at this point would not,
+ * because a router restores it as it unwinds and an async handler unwinds before it responds, which
+ * collapses every router's `:loanId` route into a single `/:loanId` series.
+ *
+ * `req.route.path` is relative to the router that matched, and `req.path` is the full request path
+ * — rewritten back to its original form on the same unwind that clears `baseUrl`. The two are
+ * aligned from the right, which is where the matched template sits: the segments the template spells
+ * out take its values, and whatever precedes them is the mount path, which comes from configuration
+ * rather than from the request.
+ *
+ * A request that matched nothing has no template, and its real path is attacker-controlled — a
+ * scanner walking `/wp-admin/<random>` would create a time series per request — so it is reported as
+ * `unmatched`. `normaliseRouteLabel` is then the last line of defence: it collapses anything
+ * resource-shaped that survives, as happens when a router is mounted under a parameterised path.
+ */
 function routeLabel(req: Request): string {
   const routePath = req.route?.path;
-  if (typeof routePath === 'string') {
-    return `${req.baseUrl}${routePath}` || req.path;
-  }
 
   if (Array.isArray(routePath)) {
-    return `${req.baseUrl}${routePath.join('|')}`;
+    return normaliseRouteLabel(`${req.baseUrl}${routePath.join('|')}`);
   }
 
-  return 'unmatched';
+  if (typeof routePath !== 'string') return UNMATCHED_ROUTE;
+
+  const templateSegments = routePath.split('/').filter((segment) => segment !== '');
+  const actualSegments = req.path.split('/').filter((segment) => segment !== '');
+
+  // A wildcard or an inline pattern cannot be aligned segment for segment, and a template longer
+  // than the path it matched is not one of ours; both fall back to the router-relative template,
+  // which is still bounded.
+  const alignable =
+    templateSegments.length > 0 &&
+    templateSegments.length <= actualSegments.length &&
+    !templateSegments.some((segment) => segment.includes('*') || segment.includes('('));
+
+  if (!alignable) return normaliseRouteLabel(routePath);
+
+  const prefix = actualSegments.slice(0, actualSegments.length - templateSegments.length);
+
+  return normaliseRouteLabel(`/${[...prefix, ...templateSegments].join('/')}`);
 }
 
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -89,16 +129,18 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
   };
 
   res.on('finish', () => {
+    // Each of these is normalised against a declared domain in `metricsLabels.ts`; see that module
+    // for why an unbounded label is the failure mode being avoided.
     const route = routeLabel(req);
-    const method = req.method;
+    const method = normaliseMethod(req.method);
     const statusCode = res.statusCode;
 
     endTimer({
       method,
       route,
-      status_class: `${Math.floor(statusCode / 100)}xx`,
+      status_class: statusClassFor(statusCode),
     });
-    httpRequestsTotalCounter.inc({ method, route, status_code: String(statusCode) });
+    httpRequestsTotalCounter.inc({ method, route, status_code: normaliseStatusCode(statusCode) });
 
     finalize();
   });

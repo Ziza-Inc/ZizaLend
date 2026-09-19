@@ -4,38 +4,20 @@
  * In-app notification management and SSE streaming.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface Notification {
-  id: number;
-  userId: string;
-  type: 'loan_approved' | 'repayment_due' | 'repayment_confirmed' | 'loan_defaulted' | 'loan_liquidated' | 'score_changed';
-  title: string;
-  message: string;
-  loanId?: number;
-  actionUrl?: string | null;
-  read: boolean;
-  status: 'unread' | 'read' | 'archived';
-  createdAt: string;
-}
+// Spec-derived, as in `loans.ts`.
+export type Notification = components['schemas']['Notification'];
 
-export interface NotificationsData {
-  notifications: Notification[];
-  unreadCount: number;
-}
+export type NotificationsData = components['schemas']['NotificationsData'];
 
-export interface NotificationsResponse {
-  success: boolean;
-  data: NotificationsData;
-}
+export type NotificationsResponse =
+  components['schemas']['NotificationsResponse'];
 
-export interface NotificationPreferences {
-  emailEnabled: boolean;
-  smsEnabled: boolean;
-  phone: string | null;
-  perTypeOverrides: Record<string, boolean>;
-  digestFrequency?: 'off' | 'daily' | 'weekly';
-}
+export type NotificationPreferences =
+  components['schemas']['NotificationPreferences'];
 
 export class Notifications {
   constructor(private client: Client) {}

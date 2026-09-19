@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { buildPageMetadata } from "../../../lib/metadata";
+import { buildRouteMetadata } from "@/app/lib/routeMetadata";
 import { LoanDetailsPageClient } from "./LoanDetailsPageClient";
 
 type PageProps = {
@@ -9,12 +9,10 @@ type PageProps = {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale, loanId } = await params;
 
-  return buildPageMetadata({
+  return buildRouteMetadata({
     locale,
+    key: "loanDetail",
     path: `/loans/${loanId}`,
-    title: `Loan #${loanId} | Zizalend`,
-    description:
-      "View loan details, repayment schedule, collateral status, and current loan status.",
   });
 }
 

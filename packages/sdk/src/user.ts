@@ -4,26 +4,15 @@
  * User profile management.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface UserProfile {
-  publicKey: string;
-  displayName?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  locale?: string | null;
-  avatarUrl?: string | null;
-  role: 'admin' | 'borrower' | 'lender';
-  createdAt: string;
-}
+// Spec-derived, as in `loans.ts`.
+export type UserProfile = components['schemas']['UserProfile'];
 
-export interface UpdateUserProfileInput {
-  displayName?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  locale?: string | null;
-  avatarUrl?: string | null;
-}
+export type UpdateUserProfileInput =
+  components['schemas']['UpdateUserProfileInput'];
 
 export class User {
   constructor(private client: Client) {}

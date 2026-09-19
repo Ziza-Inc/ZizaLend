@@ -1,0 +1,11 @@
+{
+  "//": "Coverage floors for the frontend unit suite, enforced by scripts/check-coverage-thresholds.mjs. The global floor is low because it covers every component and route, most of which the unit suite does not exercise — it is a ratchet against regressions, not a statement about the app. The per-directory floors are where the suite actually does its work: formatting, stores, hooks and pure helpers, which is what a UI refactor breaks silently.",
+  "floors": {
+    "global": { "statements": 16, "branches": 11, "functions": 13, "lines": 16 },
+    "src/app/utils/": { "statements": 49, "branches": 49, "functions": 43, "lines": 48 },
+    "src/app/lib/": { "statements": 57, "branches": 32, "functions": 61, "lines": 57 },
+    "src/app/stores/": { "statements": 52, "branches": 48, "functions": 48, "lines": 63 },
+    "src/app/hooks/": { "statements": 16, "branches": 5, "functions": 13, "lines": 16 }
+  },
+  "allowFloorDecrease": {}
+}

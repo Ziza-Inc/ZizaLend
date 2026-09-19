@@ -5,6 +5,12 @@ type PageMetadataInput = {
   path: string;
   title: string;
   description: string;
+  /**
+   * Whether a crawler should index the page. Defaults to true; account, admin and demo surfaces
+   * pass false, which is a `robots` directive rather than a note in a document — a private page
+   * that is merely undocumented is still indexed when something links to it.
+   */
+  indexable?: boolean;
 };
 
 const LOCALES = ["en", "es", "tl"] as const;
@@ -120,6 +126,7 @@ export function buildPageMetadata({
   path,
   title,
   description,
+  indexable = true,
 }: PageMetadataInput): Metadata {
   const siteUrl = getSiteUrl();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -135,6 +142,7 @@ export function buildPageMetadata({
   return {
     title,
     description,
+    ...(indexable ? {} : { robots: { index: false, follow: false } }),
     alternates: {
       canonical: pathname,
       languages,

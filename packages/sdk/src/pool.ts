@@ -4,43 +4,21 @@
  * Lending pool operations: stats, deposits, withdrawals, yield history.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface PoolStats {
-  totalDeposits: number;
-  totalOutstanding: number;
-  utilizationRate: number;
-  apy: number;
-  activeLoansCount: number;
-}
+// Spec-derived, as in `loans.ts`: these names are schema names in `packages/openapi.json`.
+export type PoolStats = components['schemas']['PoolStats'];
 
-export interface PoolStatsResponse {
-  success: boolean;
-  data: PoolStats;
-}
+export type PoolStatsResponse = components['schemas']['PoolStatsResponse'];
 
-export interface DepositorPortfolio {
-  address: string;
-  depositAmount: number;
-  sharePercent: number;
-  estimatedYield: number;
-  apy: number;
-  firstDepositAt?: string | null;
-}
+export type DepositorPortfolio = components['schemas']['DepositorPortfolio'];
 
-export interface DepositorPortfolioResponse {
-  success: boolean;
-  data: DepositorPortfolio;
-}
+export type DepositorPortfolioResponse =
+  components['schemas']['DepositorPortfolioResponse'];
 
-export interface SharePriceResponse {
-  success: boolean;
-  data: {
-    token: string;
-    price: number;
-    cached: boolean;
-  };
-}
+export type SharePriceResponse = components['schemas']['SharePriceResponse'];
 
 export interface BuildPoolTxParams {
   depositorPublicKey: string;
@@ -48,18 +26,11 @@ export interface BuildPoolTxParams {
   amount: string;
 }
 
-export interface UnsignedTransactionResponse {
-  success: boolean;
-  unsignedTxXdr: string;
-  networkPassphrase: string;
-}
+export type UnsignedTransactionResponse =
+  components['schemas']['UnsignedTransactionResponse'];
 
-export interface SubmittedTransactionResponse {
-  success: boolean;
-  txHash: string;
-  status: string;
-  resultXdr?: string;
-}
+export type SubmittedTransactionResponse =
+  components['schemas']['SubmittedTransactionResponse'];
 
 export class Pool {
   constructor(private client: Client) {}

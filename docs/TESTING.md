@@ -104,7 +104,7 @@ The Jest config is ESM, so the `test` script runs node with `--experimental-vm-m
 ```bash
 cd backend && npm test -- auth.test.ts                    # one file
 cd backend && npm test -- --testPathPattern="loan"        # by pattern
-cd backend && npm test -- --coverage                      # with coverage
+cd backend && npm run test:coverage                       # with coverage, then the floors
 cd backend && npm run test:watch                          # watch mode
 ```
 
@@ -206,14 +206,40 @@ See [scripts/loadtest/](../scripts/loadtest/).
 
 ## Coverage
 
-| Layer     | Command                                     | Enforced                |
-| --------- | ------------------------------------------- | ----------------------- |
-| Backend   | `cd backend && npm test -- --coverage`      | Reported                |
-| Frontend  | `cd frontend && npm test -- --coverage`     | Reported                |
-| Contracts | `cd contracts && cargo tarpaulin --out Xml` | `--fail-under 75` in CI |
+| Layer     | Command                                  | Enforced                                        |
+| --------- | ---------------------------------------- | ----------------------------------------------- |
+| Backend   | `cd backend && npm run test:coverage`    | Floors in `backend/coverage-thresholds.json`    |
+| Frontend  | `cd frontend && npm run test:coverage`   | Floors in `frontend/coverage-thresholds.json`   |
+| Contracts | `cd contracts && cargo tarpaulin --out Xml` | `--fail-under 75` in CI                      |
 
 Coverage is a floor, not a goal. The contract threshold is what makes it a check rather than a
 number nobody reads.
+
+### The backend and frontend floors
+
+Both suites measure every file under `src/`, not only the files a test happened to import: a
+controller with no test has to appear as uncovered, which is the case the measurement exists for.
+That is also why the global floors look low — they cover components and routes the unit suites do
+not exercise, and their job is to catch a regression, not to describe the app.
+
+`<project>/coverage-thresholds.json` holds the floors and is the only place they are written down.
+`npm run test:coverage` runs Jest and then `scripts/check-coverage-thresholds.mjs`, which compares
+the summary Jest writes against that file and fails below any of them. The script also aggregates
+per directory, so a floor can apply to `src/app/utils/` without the global number moving much.
+
+**The floors ratchet.** A floor may be raised freely; lowering one requires a reason:
+
+```json
+"allowFloorDecrease": { "src/services/ branches": "the notification dispatcher moved to a worker" }
+```
+
+Without that entry, the CI step compares the file against the base commit of the pull request and
+fails, listing what dropped. The reason is the deliverable — it is what a reviewer reads to decide
+whether the exception is justified. The same step writes the per-directory table to the pull
+request's summary.
+
+To raise a floor after a coverage improvement, edit the number and commit it in the same pull
+request; nothing else needs to change.
 
 ## CI
 
@@ -222,9 +248,9 @@ number nobody reads.
 | Job                  | What it runs                                                                                    |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
 | `supply-chain-audit` | Lockfile scan for known-malicious packages, plus the dependency-review scope and licence policy |
-| `backend`            | Lint → build → typecheck → migrations → unit tests                                              |
+| `backend`            | Lint → build → typecheck → migrations → unit tests with coverage and the floor check             |
 | `migration-check`    | Migration reversibility, idempotency, and unique timestamp prefixes                             |
-| `frontend`           | Lint → i18n key check → typecheck → unit tests → build                                          |
+| `frontend`           | Lint → i18n key check → typecheck → unit tests with coverage → build                            |
 | `e2e`                | Playwright, chromium project, push to `main` or a frontend change                               |
 | `contracts`          | Format → clippy → unit and integration tests → release WASM → size budgets → coverage           |
 | `packages`           | OpenAPI type generation, typecheck and build                                                    |

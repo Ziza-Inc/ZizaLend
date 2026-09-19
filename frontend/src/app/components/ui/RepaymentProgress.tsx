@@ -1,15 +1,12 @@
 "use client";
 
 import { LoanStatusBadge } from "./LoanStatusBadge";
+import { formatCurrency } from "@/app/utils/amount";
 
 interface RepaymentProgressProps {
   totalRepaid: number;
   totalOwed: number;
   status: "active" | "repaid" | "defaulted" | "pending" | "liquidated";
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
 export function RepaymentProgress({ totalRepaid, totalOwed, status }: RepaymentProgressProps) {

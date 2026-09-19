@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { closePool, query } from '../db/connection.js';
 import logger from '../utils/logger.js';
+import { SYNTHETIC_SOURCE_MARKER, assertSeedingAllowed } from './guard.js';
 
 dotenv.config();
 
@@ -709,7 +710,7 @@ const seedIndexerState = async () => {
            last_indexed_cursor = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = (SELECT id FROM indexer_state ORDER BY id DESC LIMIT 1)`,
-      [lastSeededLedger, 'seeded-dev-data'],
+      [lastSeededLedger, SYNTHETIC_SOURCE_MARKER],
     );
     return;
   }
@@ -717,7 +718,7 @@ const seedIndexerState = async () => {
   await query(
     `INSERT INTO indexer_state (last_indexed_ledger, last_indexed_cursor, updated_at)
      VALUES ($1, $2, CURRENT_TIMESTAMP)`,
-    [lastSeededLedger, 'seeded-dev-data'],
+    [lastSeededLedger, SYNTHETIC_SOURCE_MARKER],
   );
 };
 
@@ -760,6 +761,12 @@ const runSeed = async () => {
   logger.info('='.repeat(50));
 
   try {
+    // Before `BEGIN`, so a refusal never opens a transaction against a database it is not allowed
+    // to write to. The error is caught below and exits non-zero, which is what a CI step or a
+    // deploy script needs to see.
+    const decision = assertSeedingAllowed();
+    logger.info('Seeding allowed', { reason: decision.reason, local: decision.local });
+
     await query('BEGIN');
 
     if (reset) {

@@ -415,5 +415,83 @@
       "refresh": "I-refresh",
       "disconnect": "Idiskonekta"
     }
+  },
+  "Metadata": {
+    "home": {
+      "title": "P2P na pagpapautang at remittance na walang hangganan",
+      "description": "Gawing credit history ang iyong remittance history sa tulong ng micro-loans at mabilis na cross-border transfer sa Stellar."
+    },
+    "activity": {
+      "title": "Aktibidad",
+      "description": "Lahat ng loan event at remittance sa iyong account, nasa isang timeline."
+    },
+    "analytics": {
+      "title": "Analytics",
+      "description": "Performance ng pool, yield, paggamit at panganib sa Zizalend protocol."
+    },
+    "kingdom": {
+      "title": "Iyong Kaharian",
+      "description": "Ang iyong credit tier, mga tagumpay at mga reward na na-unlock."
+    },
+    "lend": {
+      "title": "Portfolio ng Nagpapautang",
+      "description": "Subaybayan ang performance ng pool, mga pinondohang loan, deposito, withdrawal at inaasahang yield."
+    },
+    "liquidations": {
+      "title": "Mga Liquidasyon",
+      "description": "Subaybayan at pangasiwaan ang liquidasyon ng collateral para sa mga loan na kulang ang garantiya."
+    },
+    "loans": {
+      "title": "Portfolio ng Nangungutang",
+      "description": "Tingnan ang iyong mga aktibong loan, takdang petsa ng pagbabayad at kalusugan ng portfolio."
+    },
+    "loanDetail": {
+      "title": "Detalye ng Loan",
+      "description": "Iskedyul ng pagbabayad, estado ng collateral at kasalukuyang estado ng isang loan."
+    },
+    "notifications": {
+      "title": "Mga Abiso",
+      "description": "Mga loan event, paalala sa pagbabayad at balita sa account."
+    },
+    "remittances": {
+      "title": "Mga Remittance",
+      "description": "Subaybayan ang mga cross-border transfer na bumubuo ng iyong credit history."
+    },
+    "repay": {
+      "title": "Magbayad ng Loan",
+      "description": "Gumawa, mag-review at magsumite ng pagbabayad para sa isa sa iyong mga loan."
+    },
+    "requestLoan": {
+      "title": "Humiling ng Loan",
+      "description": "Tingnan kung ano ang kayang buksan ng iyong credit score at magsumite ng loan request."
+    },
+    "sendRemittance": {
+      "title": "Magpadala ng Remittance",
+      "description": "Magpadala ng cross-border transfer at itala ito sa iyong credit history."
+    },
+    "settings": {
+      "title": "Mga Setting",
+      "description": "Ang iyong profile, wallet at mga kagustuhan sa abiso."
+    },
+    "uiDemo": {
+      "title": "Showcase ng Component",
+      "description": "Isang showcase ng mga component ng interface para sa development."
+    },
+    "wallet": {
+      "title": "Wallet",
+      "description": "Ang iyong mga balanse sa Stellar, kasaysayan ng bayad at address."
+    },
+    "adminDisputes": {
+      "title": "Mga Dispute",
+      "description": "Suriin at lutasin ang mga dispute ng nangungutang."
+    },
+    "adminDisputeDetail": {
+      "title": "Detalye ng Dispute",
+      "description": "Ang ebidensya, kasaysayan at resolusyon ng isang dispute."
+    },
+    "adminGovernance": {
+      "title": "Pamamahala",
+      "description": "Mga panukala, pag-apruba at ang multisig state ng protocol."
+    }
   }
 }

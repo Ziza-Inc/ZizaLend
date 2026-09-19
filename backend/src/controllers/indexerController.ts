@@ -16,36 +16,8 @@ import {
 import { parseCappedLimit } from '../utils/queryHelpers.js';
 import logger from '../utils/logger.js';
 
-/**
- * Returns true if the hostname resolves to a private, loopback, or link-local
- * address that should never receive outbound webhook deliveries (SSRF guard).
- */
-function isPrivateHost(hostname: string): boolean {
-  // Strip IPv6 brackets
-  const host = hostname.replace(/^\[|\]$/g, '');
-
-  // Loopback
-  if (host === 'localhost' || host === '::1') return true;
-  if (/^127\./.test(host)) return true;
-
-  // Link-local (169.254.x.x, fe80::)
-  if (/^169\.254\./.test(host)) return true;
-  if (/^fe80:/i.test(host)) return true;
-
-  // Private IPv4 ranges (RFC 1918)
-  if (/^10\./.test(host)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
-  if (/^192\.168\./.test(host)) return true;
-
-  // AWS / GCP metadata endpoints
-  if (host === '169.254.169.254' || host === 'metadata.google.internal') return true;
-
-  // Catch-all for unqualified single-label hostnames (e.g. "internal", "db")
-  if (!host.includes('.') && host !== '::1') return true;
-
-  return false;
-}
 import { getStellarRpcUrl } from '../config/stellar.js';
+import { UnsafeWebhookUrlError, assertSafeWebhookUrl } from '../utils/webhookUrlGuard.js';
 
 const buildEventFilters = (req: Request, baseParams: unknown[], initialWhereClause: string) => {
   const { status, dateRange, amountRange } = parseQueryParams(req);
@@ -487,17 +459,19 @@ export const createWebhookSubscription = async (req: Request, res: Response) => 
       });
     }
 
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    // Resolving the host is the difference between "this hostname is not obviously internal"
+    // and "this hostname cannot reach anywhere internal". The syntactic check this replaced
+    // accepted `https://anything.example`, which is public right up until it resolves to
+    // 127.0.0.1 at delivery time.
+    try {
+      await assertSafeWebhookUrl(parsedUrl.toString());
+    } catch (error) {
       return res.status(400).json({
         success: false,
-        message: 'callbackUrl must use http or https',
-      });
-    }
-
-    if (isPrivateHost(parsedUrl.hostname)) {
-      return res.status(400).json({
-        success: false,
-        message: 'callbackUrl must not target a private, loopback, or link-local address',
+        message:
+          error instanceof UnsafeWebhookUrlError
+            ? error.message
+            : 'callbackUrl must not target a private, loopback, or link-local address',
       });
     }
 

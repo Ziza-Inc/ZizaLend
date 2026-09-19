@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { buildPageMetadata } from "../../lib/metadata";
+import { buildRouteMetadata } from "@/app/lib/routeMetadata";
 import LiquidationsClient from "./LiquidationsClient";
 
 type PageProps = {
@@ -9,13 +9,7 @@ type PageProps = {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
 
-  return buildPageMetadata({
-    locale,
-    path: "/liquidations",
-    title: "Liquidations | Zizalend",
-    description:
-      "Monitor and manage collateral liquidations for undercollateralized loans to protect pool health.",
-  });
+  return buildRouteMetadata({ locale, key: "liquidations" });
 }
 
 export default function LiquidationsPage() {

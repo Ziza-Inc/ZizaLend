@@ -414,6 +414,159 @@ describe('Client', () => {
       await expect(client.get('/test')).rejects.toThrow(ApiError);
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
+
+    // ─── Replay safety ──────────────────────────────────────────────────────────
+    //
+    // A request whose response was lost is not a request that did not happen. These pin the
+    // property that makes retrying a state-changing request acceptable at all: every attempt of
+    // one `request()` call carries the *same* replay key, and a call that carries none is not
+    // retried.
+
+    /** The `Idempotency-Key` sent on the Nth fetch attempt, or undefined. */
+    const keyOf = (attempt: number): string | undefined => {
+      const call = mockFetch.mock.calls[attempt] as [string, RequestInit] | undefined;
+      const headers = call?.[1]?.headers as Record<string, string> | undefined;
+      return headers?.['Idempotency-Key'];
+    };
+
+    it('reuses one Idempotency-Key across the timeout-then-success sequence of a POST', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, data: { loanId: 42 } }),
+        });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+
+      const requestPromise = client.post('/loans', { amount: 100 });
+      await jest.advanceTimersByTimeAsync(1000);
+      await expect(requestPromise).resolves.toBeDefined();
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      // Two attempts, one operation: a server that deduplicates on the key sees a replay of the
+      // request it already processed rather than a second loan.
+      expect(keyOf(0)).toBeDefined();
+      expect(keyOf(1)).toBe(keyOf(0));
+      expect(new Set([keyOf(0), keyOf(1)]).size).toBe(1);
+    });
+
+    it('reuses one Idempotency-Key across the attempts of a transient 503 on a PATCH', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: async () => ({ success: false, message: 'Service Unavailable' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+
+      const requestPromise = client.patch('/notifications/7', { read: true });
+      await jest.advanceTimersByTimeAsync(1000);
+      await expect(requestPromise).resolves.toBeDefined();
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(keyOf(1)).toBe(keyOf(0));
+    });
+
+    it('does not retry a POST when the client may not mint a replay key', async () => {
+      mockFetch.mockRejectedValue(new TypeError('fetch failed'));
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 3,
+        autoIdempotencyKey: false,
+      });
+
+      await expect(client.post('/loans', { amount: 100 })).rejects.toThrow(TypeError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(keyOf(0)).toBeUndefined();
+    });
+
+    it('retries a POST that the caller supplied its own replay key for', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+
+      // The caller asserting its backend honours the key is what opts this in when
+      // `autoIdempotencyKey` is off.
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 3,
+        autoIdempotencyKey: false,
+      });
+
+      const requestPromise = client.post(
+        '/loans',
+        { amount: 100 },
+        { headers: { 'Idempotency-Key': 'caller-supplied-key' } },
+      );
+      await jest.advanceTimersByTimeAsync(1000);
+      await expect(requestPromise).resolves.toBeDefined();
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(keyOf(0)).toBe('caller-supplied-key');
+      expect(keyOf(1)).toBe('caller-supplied-key');
+    });
+
+    it('retries an idempotent method without adding a replay key', async () => {
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+
+      const requestPromise = client.put('/loans/1', { amount: 100 });
+      await jest.advanceTimersByTimeAsync(1000);
+      await expect(requestPromise).resolves.toBeDefined();
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      // PUT replaces, so repeating it is not a second effect and needs no key.
+      expect(keyOf(0)).toBeUndefined();
+    });
+
+    it('keeps a caller-supplied key even when the client mints keys by default', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+      await client.post('/loans', { amount: 1 }, { headers: { 'Idempotency-Key': 'mine' } });
+
+      expect(keyOf(0)).toBe('mine');
+    });
+
+    it('generates a distinct key per logical operation, not per client', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+      await client.post('/loans', { amount: 1 });
+      await client.post('/loans', { amount: 2 });
+
+      expect(keyOf(0)).toBeDefined();
+      expect(keyOf(1)).toBeDefined();
+      expect(keyOf(1)).not.toBe(keyOf(0));
+    });
   });
 
   // ─── HTTP Method Helpers ────────────────────────────────────────────────────

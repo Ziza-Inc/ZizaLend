@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { buildPageMetadata } from "../../lib/metadata";
+import { buildRouteMetadata } from "@/app/lib/routeMetadata";
 import KingdomClient from "./KingdomClient";
 
 type PageProps = {
@@ -9,13 +9,7 @@ type PageProps = {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params;
 
-  return buildPageMetadata({
-    locale,
-    path: "/kingdom",
-    title: "Kingdom | Zizalend",
-    description:
-      "Track your lending kingdom progress, achievements, and exclusive rewards through our gamification system.",
-  });
+  return buildRouteMetadata({ locale, key: "kingdom" });
 }
 
 export default function KingdomPage() {

@@ -82,6 +82,11 @@ interface ClientConfig {
   totalTimeoutMs?: number;
   /** Upper bound in milliseconds on any single backoff wait (default: 30000) */
   maxRetryDelayMs?: number;
+  /**
+   * Whether a state-changing request may carry a client-generated replay key, which is what
+   * makes retrying one safe (default: true). See "Retrying a state-changing request".
+   */
+  autoIdempotencyKey?: boolean;
 }
 ```
 
@@ -180,6 +185,9 @@ const result = await api.loans.submitSignAndSubmit({
 
 // Cancel pending loan
 await api.loans.cancelLoan(loanId);
+
+// Mark a loan as defaulted (test/dev helper — see the spec's `markLoanDefaulted`)
+await api.loans.markDefaulted(loanId);
 
 // Get loan configuration
 const config = await api.loans.getConfig();
@@ -449,8 +457,55 @@ try {
 
 ### Retry behavior
 
-The client automatically retries on transient failures (HTTP 429, 502, 503, 504) and network
-errors. Configure via `maxRetries` (default: 3).
+The client retries on transient failures (HTTP 429, 502, 503, 504) and network errors, up to
+`maxRetries` (default: 3). **Which methods it will retry depends on the method**, because a
+retry is only a repeat of the same operation if the server can tell that it is the same
+operation.
+
+#### Retrying a state-changing request
+
+`GET`, `HEAD`, `OPTIONS`, `PUT` and `DELETE` are idempotent ([RFC 9110
+§9.2.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.2.2)), so the client retries them
+freely — a second attempt cannot create a second effect.
+
+`POST` and `PATCH` are not. A request that times out is **not** a request that failed: the
+server may have received it, processed it and written a transaction, with only the response
+lost. Replaying it would re-execute the work — a second loan, a second remittance, a second
+transaction submission.
+
+So a `POST` or `PATCH` is retried only while it carries a replay key:
+
+- With `autoIdempotencyKey` on (the default), the client mints one `Idempotency-Key` per
+  logical operation and sends the *same* key on every attempt of that operation. Two attempts
+  under one key are one operation to a backend that deduplicates on it; two attempts under
+  different keys are two. Keys are per operation, not per client, and never reused between
+  calls.
+- With `autoIdempotencyKey: false`, no key is minted and a `POST` or `PATCH` is attempted
+  exactly once — it is never retried, whatever `maxRetries` says.
+
+Pass your own key through `init.headers` to keep retries on while opting out of generation, if
+you want to derive the key from your own operation id. The low-level HTTP helpers on `Client`
+are the entry point for that — the module methods above it take no `init`:
+
+```ts
+import { Client } from "@zizalend/sdk";
+
+const client = new Client({ baseUrl, autoIdempotencyKey: false });
+
+// Retried, because the caller supplied the key it will be deduplicated on.
+await client.post("/loans/submit", body, {
+  headers: { "Idempotency-Key": operationId },
+});
+```
+
+**What happens when the server does not support the key.** A server that ignores
+`Idempotency-Key` treats the second attempt as a new request, and a `POST` whose first attempt
+had already been processed is then performed twice. The key header is standard-shaped and
+harmless to a server that does not read it, but it only buys you the guarantee above where the
+backend acts on it — `backend/src/middleware/idempotency.ts` is that side of the contract.
+Until you know it is deployed, set `autoIdempotencyKey: false` and treat a timed-out `POST` as
+"unknown, verify before retrying". `maxRetries` does not change this: it caps how many
+attempts a retryable request gets, and does not make an un-retryable one retryable.
 
 **`Retry-After` is honoured.** A 429 or 503 that carries the header is waited out for the
 interval it states, in either form RFC 9110 allows: delta-seconds (`Retry-After: 60`) or an
@@ -592,6 +647,15 @@ const adminClient = new Zizalend({
 await adminClient.indexer.reindex({ fromLedger: 0 });
 await adminClient.admin.resolveDispute(disputeId, { resolution: "approved" });
 ```
+
+## Spec Parity
+
+The SDK is a client for the API described by [`packages/openapi.json`](../../packages/openapi.json), and two checks keep the two from drifting apart:
+
+- **Every documented operation has a method.** `src/__tests__/openapiParity.test.ts` compares the spec's paths and verbs against the calls this package makes, in both directions. Adding an endpoint to the backend without adding it here fails the suite.
+- **Request and response types are derived, not copied.** The public types are aliases into `@zizalend/types`, which is generated from the spec, so a field the API stops returning is a type error here rather than an `undefined` at runtime. `src/__tests__/specDerivedTypes.test.ts` fails if one of them is declared by hand again.
+
+Both run in the `packages` CI job. Because the types come from `@zizalend/types`, that package has to be generated and built before this one resolves them — `npm test` does that for you, and CI does it explicitly.
 
 ## TypeScript
 

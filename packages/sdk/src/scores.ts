@@ -4,51 +4,23 @@
  * Credit score queries, breakdowns, history, and updates.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface UserScore {
-  success: boolean;
-  userId: string;
-  score: number;
-  band: 'Excellent' | 'Good' | 'Fair' | 'Poor';
-}
+// Spec-derived, as in `loans.ts`. `UserScore.band` in particular used to be a hand-written
+// literal union that the spec happened to agree with; the alias is what keeps it that way.
+export type UserScore = components['schemas']['UserScore'];
 
-export interface ScoreBreakdownMetrics {
-  totalLoans: number;
-  repaidOnTime: number;
-  repaidLate: number;
-  defaulted: number;
-  totalRepaid: number;
-  averageRepaymentTime: string;
-  longestStreak: number;
-  currentStreak: number;
-}
+export type ScoreBreakdownMetrics =
+  components['schemas']['ScoreBreakdownMetrics'];
 
-export interface ScoreHistoryEntry {
-  date: string | null;
-  score: number;
-  event: string;
-}
+export type ScoreHistoryEntry = components['schemas']['ScoreHistoryEntry'];
 
-export interface ScoreBreakdownResponse {
-  success: boolean;
-  userId: string;
-  score: number;
-  band: 'Excellent' | 'Good' | 'Fair' | 'Poor';
-  breakdown: ScoreBreakdownMetrics;
-  history: ScoreHistoryEntry[];
-}
+export type ScoreBreakdownResponse =
+  components['schemas']['ScoreBreakdownResponse'];
 
-export interface ScoreUpdateResponse {
-  success: boolean;
-  userId: string;
-  repaymentAmount: number;
-  onTime: boolean;
-  oldScore: number;
-  delta: number;
-  newScore: number;
-  band: 'Excellent' | 'Good' | 'Fair' | 'Poor';
-}
+export type ScoreUpdateResponse = components['schemas']['ScoreUpdateResponse'];
 
 export class Scores {
   constructor(private client: Client) {}
