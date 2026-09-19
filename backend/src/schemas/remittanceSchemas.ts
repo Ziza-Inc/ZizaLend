@@ -1,25 +1,48 @@
 import { z } from 'zod';
+import {
+  REMITTANCE_AMOUNT_DECIMALS,
+  REMITTANCE_MAX_AMOUNT,
+  REMITTANCE_MEMO_MAX_LENGTH,
+  STELLAR_ADDRESS_PATTERN,
+  hasSupportedAmountPrecision,
+} from '../services/remittanceRules.js';
 
-// Stellar address regex (56 chars, starts with G, base32)
-const STELLAR_ADDRESS_REGEX = /^G[A-Z2-7]{55}$/;
-
-// Schema for POST /remittances
+/**
+ * Request-boundary enforcement of the remittance acceptance rules.
+ *
+ * This is the first of the two places the rules live — see `remittanceRules.ts` for the shared
+ * definitions and `docs/remittances.md` for the documented set. The bound on `amount` and the
+ * bounds on the addresses come from the same constants the service uses, so the two cannot
+ * disagree about what "too large" or "not an address" means.
+ *
+ * Self-transfer and the duplicate window are deliberately absent: neither is expressible here.
+ * The sender is authenticated, not submitted, so the body never contains both addresses, and
+ * the duplicate check needs the database.
+ */
 export const createRemittanceSchema = z.object({
   body: z.object({
     recipientAddress: z
       .string()
-      .regex(STELLAR_ADDRESS_REGEX, 'Invalid Stellar address format')
+      .regex(STELLAR_ADDRESS_PATTERN, 'Invalid Stellar address format')
       .describe("Recipient's Stellar public key"),
     amount: z
       .number()
+      .finite('Amount must be a finite number')
       .positive('Amount must be greater than 0')
-      .max(1_000_000, 'Amount exceeds maximum limit')
+      .max(REMITTANCE_MAX_AMOUNT, `Amount exceeds the maximum of ${REMITTANCE_MAX_AMOUNT}`)
+      .refine(
+        hasSupportedAmountPrecision,
+        `Amount supports at most ${REMITTANCE_AMOUNT_DECIMALS} decimal places`,
+      )
       .describe('Amount to send'),
     fromCurrency: z.enum(['USDC', 'EURC', 'PHP']).describe('Source currency'),
     toCurrency: z.enum(['USDC', 'EURC', 'PHP']).describe('Destination currency'),
     memo: z
       .string()
-      .max(28, 'Memo must be 28 characters or less')
+      .max(
+        REMITTANCE_MEMO_MAX_LENGTH,
+        `Memo must be ${REMITTANCE_MEMO_MAX_LENGTH} characters or less`,
+      )
       .optional()
       .describe('Optional transaction memo'),
   }),

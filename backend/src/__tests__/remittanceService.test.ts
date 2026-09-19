@@ -76,6 +76,10 @@ describe('remittanceService.createRemittance', () => {
     delete process.env.STELLAR_EURC_ISSUER;
     delete process.env.STELLAR_PHP_ISSUER;
     mockGetAccount.mockResolvedValue(new Account(SENDER, '12345'));
+    // `createRemittance` now looks for a recent duplicate before it builds the XDR, so the
+    // default answer to that lookup is "none" — otherwise `mockQuery` would resolve undefined
+    // and every case below would fail on the lookup rather than on what it is testing.
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0, command: 'SELECT', oid: 0, fields: [] });
     mockRemittanceInsert();
   });
 

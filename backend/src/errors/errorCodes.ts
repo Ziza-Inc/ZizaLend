@@ -13,6 +13,13 @@ export enum ErrorCode {
   // Validation Errors (400)
   INVALID_AMOUNT = 'INVALID_AMOUNT',
   INVALID_PUBLIC_KEY = 'INVALID_PUBLIC_KEY',
+  /**
+   * A remittance whose recipient is the sender.
+   *
+   * Distinct from INVALID_PUBLIC_KEY because both addresses are well-formed — the request is
+   * wrong for what it says, not for how it is spelled, and the two need different copy.
+   */
+  SELF_TRANSFER = 'SELF_TRANSFER',
   INVALID_SIGNATURE = 'INVALID_SIGNATURE',
   INVALID_CHALLENGE = 'INVALID_CHALLENGE',
   MISSING_FIELD = 'MISSING_FIELD',
@@ -42,6 +49,13 @@ export enum ErrorCode {
   // Conflict Errors (409)
   CONFLICT = 'CONFLICT',
   DUPLICATE_REQUEST = 'DUPLICATE_REQUEST',
+  /**
+   * An identical remittance was already recorded inside the deduplication window.
+   *
+   * A 409 rather than a 400: the record was well-formed and accepted before, so retrying the
+   * same request is what conflicts, and the caller can tell a retry from a bad payload.
+   */
+  DUPLICATE_REMITTANCE = 'DUPLICATE_REMITTANCE',
 
   // Rate Limiting (429)
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
@@ -91,6 +105,13 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     httpStatus: 400,
     description: 'The provided Stellar public key format is invalid',
     suggestedAction: "Provide a valid Stellar public key (starts with 'G')",
+  },
+  [ErrorCode.SELF_TRANSFER]: {
+    code: ErrorCode.SELF_TRANSFER,
+    message: 'Sender and recipient are the same address',
+    httpStatus: 400,
+    description: 'A remittance cannot be sent to the address that is sending it',
+    suggestedAction: 'Send the remittance to a different Stellar address',
   },
   [ErrorCode.INVALID_SIGNATURE]: {
     code: ErrorCode.INVALID_SIGNATURE,
@@ -232,6 +253,14 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     httpStatus: 409,
     description: 'The request conflicts with the current state of the resource',
     suggestedAction: 'Review the resource state and retry',
+  },
+  [ErrorCode.DUPLICATE_REMITTANCE]: {
+    code: ErrorCode.DUPLICATE_REMITTANCE,
+    message: 'Duplicate remittance',
+    httpStatus: 409,
+    description:
+      'An identical remittance was recorded within the deduplication window for this sender',
+    suggestedAction: 'Wait for the window to pass, or change the amount or recipient',
   },
   [ErrorCode.DUPLICATE_REQUEST]: {
     code: ErrorCode.DUPLICATE_REQUEST,

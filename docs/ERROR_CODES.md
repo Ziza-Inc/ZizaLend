@@ -5,7 +5,7 @@
 > runs in CI and fails when this file is out of date, which is also how a duplicate or
 > unassigned code is caught.
 
-**113 codes** — 80 across four contracts, 33 on the API.
+**115 codes** — 80 across four contracts, 35 on the API.
 
 ## Why this matters
 
@@ -30,7 +30,7 @@ inside a failed invocation, and simulation reports the code without needing a le
 | LoanManager | `LoanError` | 25 |
 | LendingPool | `PoolError` | 14 |
 | MultisigGovernance | `GovernanceError` | 20 |
-| API | `ErrorCode` | 33 |
+| API | `ErrorCode` | 35 |
 
 ### RemittanceNFT — `NftError`
 
@@ -161,6 +161,7 @@ Declared in [`backend/src/errors/errorCodes.ts`](../backend/src/errors/errorCode
 | `CHALLENGE_EXPIRED` | 401 | The challenge message has expired (valid for 5 minutes) | Request a new challenge and sign it |
 | `CONFLICT` | 409 | The request conflicts with the current state of the resource | Review the resource state and retry |
 | `DATABASE_ERROR` | 500 | A database error occurred | Please try again later or contact support |
+| `DUPLICATE_REMITTANCE` | 409 | An identical remittance was recorded within the deduplication window for this sender | Wait for the window to pass, or change the amount or recipient |
 | `DUPLICATE_REQUEST` | 409 | This request has already been processed | Check if the operation was already completed |
 | `EXTERNAL_SERVICE_ERROR` | 500 | An external service failed to respond | Please try again later or contact support |
 | `FORBIDDEN` | 403 | You do not have permission to access this resource | Ensure you have the required permissions |
@@ -182,6 +183,7 @@ Declared in [`backend/src/errors/errorCodes.ts`](../backend/src/errors/errorCode
 | `PAYLOAD_TOO_LARGE` | 413 | The request body exceeds the maximum allowed size | Reduce the payload size and retry |
 | `POOL_NOT_FOUND` | 404 | The specified pool does not exist | Verify the pool address and try again |
 | `RATE_LIMIT_EXCEEDED` | 429 | Too many requests. Please try again later | Wait before making another request |
+| `SELF_TRANSFER` | 400 | A remittance cannot be sent to the address that is sending it | Send the remittance to a different Stellar address |
 | `SERVICE_UNAVAILABLE` | 503 | A required dependency is unavailable | Please try again later |
 | `TOKEN_EXPIRED` | 401 | The JWT token has expired | Log in again to obtain a new token |
 | `TOKEN_INVALID` | 401 | The JWT token is invalid or malformed | Log in again to obtain a new token |

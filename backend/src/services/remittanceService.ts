@@ -4,7 +4,13 @@ import { createSorobanRpcServer, getStellarNetworkPassphrase } from '../config/s
 import { query } from '../db/connection.js';
 import { withTransaction } from '../db/transaction.js';
 import { AppError } from '../errors/AppError.js';
+import { ErrorCode } from '../errors/errorCodes.js';
 import logger from '../utils/logger.js';
+import {
+  REMITTANCE_DUPLICATE_WINDOW_MS,
+  assertRemittanceRules,
+  isValidStellarAddress,
+} from './remittanceRules.js';
 
 export interface CreateRemittancePayload {
   recipientAddress: string;
@@ -30,16 +36,52 @@ export interface Remittance {
   updatedAt: string;
 }
 
-/**
- * Validates a Stellar public key format
- */
-function isValidStellarAddress(address: string): boolean {
-  if (!address || typeof address !== 'string') return false;
-  if (address.length !== 56 || !address.startsWith('G')) return false;
-  return /^G[A-Z2-7]{55}$/.test(address);
-}
-
 const normalizeCurrency = (currency: string): string => currency.trim().toUpperCase();
+
+/**
+ * Reject a remittance identical to one this sender already recorded inside the window.
+ *
+ * Two identical records are two credit events, and the credit score is the reason this is a
+ * refusal rather than a warning. Run before the Soroban RPC call that builds the XDR, so a
+ * duplicate costs one indexed read rather than a round-trip to the network.
+ */
+async function assertNotDuplicate(
+  senderAddress: string,
+  recipientAddress: string,
+  amount: number,
+  fromCurrency: string,
+  toCurrency: string,
+): Promise<void> {
+  const windowStart = new Date(Date.now() - REMITTANCE_DUPLICATE_WINDOW_MS).toISOString();
+
+  const result = await query(
+    `SELECT id, created_at FROM remittances
+      WHERE sender_id = $1
+        AND recipient_address = $2
+        AND amount = $3
+        AND from_currency = $4
+        AND to_currency = $5
+        AND created_at >= $6
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [senderAddress, recipientAddress, amount, fromCurrency, toCurrency, windowStart],
+  );
+
+  const existing = result.rows[0] as { id: string } | undefined;
+  if (!existing) return;
+
+  throw AppError.withCode(
+    ErrorCode.DUPLICATE_REMITTANCE,
+    `An identical remittance (${existing.id}) was recorded in the last ${
+      REMITTANCE_DUPLICATE_WINDOW_MS / 1000
+    } seconds`,
+    'recipientAddress',
+    {
+      existingRemittanceId: existing.id,
+      deduplicationWindowMs: REMITTANCE_DUPLICATE_WINDOW_MS,
+    },
+  );
+}
 
 const getCurrencyAsset = (currency: string): Asset => {
   const normalized = normalizeCurrency(currency);
@@ -76,21 +118,28 @@ export const remittanceService = {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // Validate before opening a DB transaction — avoids holding a connection
-    // while doing synchronous checks.
-    if (!isValidStellarAddress(payload.recipientAddress)) {
-      throw AppError.badRequest(
-        'Invalid Stellar recipient address (must be 56 chars, start with G)',
-      );
-    }
-
-    if (!isValidStellarAddress(payload.senderAddress)) {
-      throw AppError.badRequest('Invalid Stellar sender address (must be 56 chars, start with G)');
-    }
+    // Every rule that can be checked without the database, before a connection is taken or a
+    // transaction is opened. `docs/remittances.md` documents the set; each failure raises the
+    // code for the rule that failed rather than a generic validation error.
+    assertRemittanceRules({
+      senderAddress: payload.senderAddress,
+      recipientAddress: payload.recipientAddress,
+      amount: payload.amount,
+      memo: payload.memo,
+    });
 
     const paymentAsset = getCurrencyAsset(payload.fromCurrency);
     const normalizedFromCurrency = normalizeCurrency(payload.fromCurrency);
     const normalizedToCurrency = normalizeCurrency(payload.toCurrency);
+
+    // The one rule that needs the database, checked before the RPC call below.
+    await assertNotDuplicate(
+      payload.senderAddress,
+      payload.recipientAddress,
+      payload.amount,
+      normalizedFromCurrency,
+      normalizedToCurrency,
+    );
 
     try {
       const networkPassphrase = getStellarNetworkPassphrase();
