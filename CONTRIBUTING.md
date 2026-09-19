@@ -26,6 +26,7 @@ We follow a **Feature-Branch-to-Main** workflow. All development work should hap
 ### Architecture & Contributor Wiki
 
 If you're new to the codebase, start with:
+- `docs/glossary.md` (every domain and Stellar term the project uses, one sentence each — remittance, score, stroop, SAC, ledger, and the rest, so no term sends you out of the repository)
 - `docs/wiki/README.md` (high-level contributor wiki)
 - `ARCHITECTURE.md` (system overview)
 - `docs/deployed-contracts.md` (testnet/mainnet contract IDs and the env vars that consume them).
