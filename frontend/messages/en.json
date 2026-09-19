@@ -51,7 +51,10 @@
     "description": "View all your loan requests, remittances, and transactions in one place.",
     "notConnected": "Wallet Not Connected",
     "connectWalletToViewActivity": "Connect your wallet to view your activity history.",
-    "emptyState": "No activity yet. Your transactions will appear here.",
+    "emptyState": {
+      "title": "No activity yet",
+      "description": "Your transactions will appear here."
+    },
     "filters": {
       "all": "All Activity",
       "loan": "Loans",

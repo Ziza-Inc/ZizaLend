@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "audit:a11y": "next build && npx axe-playwright",
     "format": "prettier --write .",
     "test": "jest",
