@@ -1,4 +1,17 @@
-import { ApiError, Client } from '../client.js';
+import {
+  ApiError,
+  Client,
+  DEFAULT_MAX_RETRY_DELAY_MS,
+  RequestDeadlineExceededError,
+  parseRetryAfterMs,
+} from '../client.js';
+
+/** Minimal stand-in for `Response.headers`, which a JSON mock does not otherwise carry. */
+function headersWith(retryAfter: string): { get(name: string): string | null } {
+  return {
+    get: (name: string) => (name.toLowerCase() === 'retry-after' ? retryAfter : null),
+  };
+}
 
 // ─── ApiError ─────────────────────────────────────────────────────────────────
 
@@ -500,6 +513,321 @@ describe('Client', () => {
       const client = new Client({ baseUrl: 'http://localhost:3001' });
       const result = await client.raw('/events/stream');
       expect(result).toBe(mockResponse);
+    });
+  });
+
+  // ─── parseRetryAfterMs ──────────────────────────────────────────────────────
+
+  describe('parseRetryAfterMs', () => {
+    // A fixed clock, because an HTTP-date has one-second resolution and "now" with
+    // milliseconds in it would make the expected value drift.
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+
+    it('reads the delta-seconds form', () => {
+      expect(parseRetryAfterMs(headersWith('60'), now)).toBe(60_000);
+      expect(parseRetryAfterMs(headersWith('1'), now)).toBe(1_000);
+      expect(parseRetryAfterMs(headersWith('  120  '), now)).toBe(120_000);
+    });
+
+    it('reads the HTTP-date form', () => {
+      expect(parseRetryAfterMs(headersWith('Thu, 01 Jan 2026 12:00:05 GMT'), now)).toBe(5_000);
+    });
+
+    it('clamps a date that has already passed to zero', () => {
+      expect(parseRetryAfterMs(headersWith('Thu, 01 Jan 2026 11:59:00 GMT'), now)).toBe(0);
+    });
+
+    it('returns null for a header it cannot parse, so the caller backs off instead', () => {
+      expect(parseRetryAfterMs(headersWith('soon'), now)).toBeNull();
+      expect(parseRetryAfterMs(headersWith(''), now)).toBeNull();
+      expect(parseRetryAfterMs(headersWith('-5'), now)).toBeNull();
+      expect(parseRetryAfterMs(headersWith('1.5'), now)).toBeNull();
+    });
+
+    it('returns null when there are no headers at all', () => {
+      expect(parseRetryAfterMs(undefined, now)).toBeNull();
+      expect(parseRetryAfterMs(null, now)).toBeNull();
+      expect(parseRetryAfterMs({ get: () => null }, now)).toBeNull();
+    });
+  });
+
+  // ─── Retry-After ────────────────────────────────────────────────────────────
+
+  describe('Retry-After', () => {
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      jest.resetAllMocks();
+      jest.useFakeTimers();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('does not retry a 429 after 200ms when the server asked for a minute', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: headersWith('60'),
+        json: async () => ({ success: false, error: { code: 'RATE_LIMIT_EXCEEDED' } }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 1,
+        maxRetryDelayMs: 5_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+
+      // The old schedule slept 200ms and hammered the limiter while its window was shut.
+      await jest.advanceTimersByTimeAsync(250);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(4_800);
+      await expect(settled).resolves.toBeInstanceOf(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('caps an hour-long Retry-After at maxRetryDelayMs', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: headersWith('3600'),
+        json: async () => ({ success: false }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 1,
+        maxRetryDelayMs: 2_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+
+      await jest.advanceTimersByTimeAsync(1_999);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(2);
+      await expect(settled).resolves.toBeInstanceOf(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('honours an HTTP-date Retry-After as well as delta-seconds', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      const retryAt = new Date(Date.now() + 3_000).toUTCString();
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: headersWith(retryAt),
+        json: async () => ({ success: false }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 1,
+        maxRetryDelayMs: 10_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+
+      // An HTTP-date has one-second resolution, so the wait is just under three seconds.
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(2_000);
+      await expect(settled).resolves.toBeInstanceOf(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('jitters an honoured Retry-After upwards rather than downwards', async () => {
+      // `Retry-After` is a floor: the recorded call time must never precede the interval the
+      // server asked for, or every client returns before the window reopens.
+      jest.spyOn(Math, 'random').mockReturnValue(0.999);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: headersWith('1'),
+        json: async () => ({ success: false }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 1,
+        maxRetryDelayMs: 10_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(300);
+      await expect(settled).resolves.toBeInstanceOf(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to exponential backoff when the header is absent', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: async () => ({ success: false, error: { code: 'RATE_LIMIT_EXCEEDED' } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 3 });
+
+      const requestPromise = client.get('/test');
+
+      // Equal jitter with random() === 0 is exactly half the window, so the first wait is 100ms.
+      await jest.advanceTimersByTimeAsync(99);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(2);
+      await expect(requestPromise).resolves.toBeDefined();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ─── Total deadline ────────────────────────────────────────────────────────
+
+  describe('total deadline', () => {
+    const mockFetch = jest.fn();
+
+    beforeEach(() => {
+      jest.resetAllMocks();
+      jest.useFakeTimers();
+      global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('bounds every attempt and the backoff between them, not just one attempt', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({ success: false, message: 'Down' }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 5,
+        totalTimeoutMs: 1_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(10_000);
+      const error = await settled;
+
+      expect(error).toBeInstanceOf(RequestDeadlineExceededError);
+      expect(error).not.toBeInstanceOf(ApiError);
+      expect((error as RequestDeadlineExceededError).totalTimeoutMs).toBe(1_000);
+      // `maxRetries: 5` alone would allow six attempts; the deadline cut it short.
+      expect(mockFetch.mock.calls.length).toBeLessThan(6);
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    it('stops retrying when the backoff alone cannot fit in the remaining budget', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: headersWith('60'),
+        json: async () => ({ success: false }),
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 3,
+        totalTimeoutMs: 5_000,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(10);
+
+      // Failing immediately beats sleeping 60 seconds past a deadline that has already decided
+      // the outcome, and beats reporting the rate-limit error the caller could not have avoided.
+      await expect(settled).resolves.toBeInstanceOf(RequestDeadlineExceededError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails promptly when the deadline is shorter than one attempt timeout', async () => {
+      mockFetch.mockImplementation((_url: string, opts: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          const signal = opts.signal as AbortSignal;
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+          });
+        });
+      });
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        timeoutMs: 30_000,
+        maxRetries: 3,
+        totalTimeoutMs: 50,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(60);
+
+      const error = await settled;
+      expect(error).toBeInstanceOf(RequestDeadlineExceededError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the deadline rather than the last transport error', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockRejectedValue(new TypeError('fetch failed'));
+
+      const client = new Client({
+        baseUrl: 'http://localhost:3001',
+        maxRetries: 4,
+        totalTimeoutMs: 200,
+      });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(1_000);
+      const error = await settled;
+
+      expect(error).toBeInstanceOf(RequestDeadlineExceededError);
+      expect((error as Error).message).toMatch(/deadline/i);
+      expect((error as Error).message).not.toMatch(/fetch failed/);
+    });
+
+    it('leaves the per-attempt behaviour alone when no deadline is configured', async () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0);
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({ success: false, message: 'Down' }),
+      });
+
+      const client = new Client({ baseUrl: 'http://localhost:3001', maxRetries: 2 });
+
+      const settled = client.get('/test').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      // The last transport error, as before: nothing bounded the request.
+      await expect(settled).resolves.toBeInstanceOf(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('exposes a documented default cap on a single backoff wait', () => {
+      expect(DEFAULT_MAX_RETRY_DELAY_MS).toBe(30_000);
     });
   });
 });
