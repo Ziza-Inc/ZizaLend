@@ -8,41 +8,24 @@
  * 4. Use JWT for authenticated requests
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client, ApiError } from './client.js';
 
-export interface ChallengeMessage {
-  message: string;
-  nonce: string;
-  timestamp: number;
-  expiresIn: number;
-}
+// Spec-derived, as in `loans.ts`. The spec names these operations' payloads `Auth*`; the aliases
+// keep this module's shorter names, which the package has always exported, pointing at the
+// generated shapes rather than at a second copy of them.
+export type ChallengeMessage = components['schemas']['ChallengeMessage'];
 
-export interface ChallengeResponse {
-  success: boolean;
-  data: ChallengeMessage;
-}
+export type ChallengeResponse = components['schemas']['AuthChallengeResponse'];
 
-export interface LoginData {
-  token: string;
-  publicKey: string;
-}
+export type LoginData = components['schemas']['AuthLoginData'];
 
-export interface LoginResponse {
-  success: boolean;
-  data: LoginData;
-}
+export type LoginResponse = components['schemas']['AuthLoginResponse'];
 
-export interface VerifyData {
-  valid: boolean;
-  publicKey?: string | null;
-  role?: 'admin' | 'borrower' | 'lender' | null;
-  scopes?: string[];
-}
+export type VerifyData = components['schemas']['AuthVerifyData'];
 
-export interface VerifyResponse {
-  success: boolean;
-  data: VerifyData;
-}
+export type VerifyResponse = components['schemas']['AuthVerifyResponse'];
 
 /**
  * Clock-skew margin applied when deciding whether a token is still usable.

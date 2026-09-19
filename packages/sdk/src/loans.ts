@@ -5,6 +5,8 @@
  * refinance, extend, liquidate, collateral management, and queries.
  */
 
+import type { components } from "@zizalend/types";
+
 import { Client } from "./client.js";
 import {
   collectPages,
@@ -12,70 +14,29 @@ import {
   type PaginatorOptions,
 } from "./pagination.js";
 
-export interface BorrowerLoan {
-  loanId: number;
-  principal: number;
-  accruedInterest: number;
-  totalRepaid: number;
-  totalOwed: number;
-  nextPaymentDeadline: string;
-  status: "active" | "repaid" | "defaulted";
-  borrower: string;
-  approvedAt?: string | null;
-}
+// The response shapes are the spec's, not copies of it. Each alias resolves through
+// `@zizalend/types`, which is generated from `packages/openapi.json`, so a field the API stops
+// returning fails this package's typecheck instead of surfacing as `undefined` at runtime.
+// `__tests__/specDerivedTypes.test.ts` fails when one of these reverts to a hand-written shape.
+export type BorrowerLoan = components["schemas"]["BorrowerLoan"];
 
-export interface BorrowerLoansResponse {
-  success: boolean;
-  borrower: string;
-  loans: BorrowerLoan[];
-}
+export type BorrowerLoansResponse =
+  components["schemas"]["BorrowerLoansResponse"];
 
-export interface LoanSummaryEvent {
-  type: string;
-  amount?: string | null;
-  timestamp?: string | null;
-  tx?: string | null;
-}
+export type LoanSummaryEvent = components["schemas"]["LoanSummaryEvent"];
 
-export interface LoanDetailsSummary {
-  principal: number;
-  accruedInterest: number;
-  totalRepaid: number;
-  totalOwed: number;
-  interestRate: number;
-  termLedgers: number;
-  elapsedLedgers: number;
-  status: "active" | "repaid" | "defaulted";
-  requestedAt?: string | null;
-  approvedAt?: string | null;
-  events: LoanSummaryEvent[];
-}
+export type LoanDetailsSummary = components["schemas"]["LoanDetailsSummary"];
 
-export interface LoanDetailsResponse {
-  success: boolean;
-  loanId: string;
-  summary: LoanDetailsSummary;
-}
+export type LoanDetailsResponse = components["schemas"]["LoanDetailsResponse"];
 
-export interface UnsignedTransactionResponse {
-  success: boolean;
-  unsignedTxXdr: string;
-  networkPassphrase: string;
-}
+export type UnsignedTransactionResponse =
+  components["schemas"]["UnsignedTransactionResponse"];
 
-export interface RepayTransactionResponse {
-  success: boolean;
-  loanId: number;
-  unsignedTxXdr: string;
-  networkPassphrase: string;
-}
+export type RepayTransactionResponse =
+  components["schemas"]["RepayTransactionResponse"];
 
-export interface SubmittedTransactionResponse {
-  success: boolean;
-  txHash: string;
-  status: string;
-  resultXdr?: string;
-}
+export type SubmittedTransactionResponse =
+  components["schemas"]["SubmittedTransactionResponse"];
 
 export interface LoanConfig {
   minAmount?: string;
@@ -355,5 +316,20 @@ export class Loans {
    */
   async contestDefault(loanId: number, reason?: string): Promise<void> {
     await this.client.post(`/loans/${loanId}/contest-default`, { reason });
+  }
+
+  /**
+   * Mark a loan as defaulted.
+   *
+   * Documented in the spec as `markLoanDefaulted`, and the only documented operation the SDK had
+   * no method for — a gap the parity test in `__tests__/openapiParity.test.ts` now fails on.
+   *
+   * The endpoint behind it is a test/dev helper (`backend/src/controllers/loanController.ts`
+   * records a `LoanDefaulted` event directly, without a chain transaction), so this is here for
+   * spec completeness and integration setup rather than as a production flow. It takes no body;
+   * the backend fills the borrower from the authenticated user.
+   */
+  async markDefaulted(loanId: number): Promise<void> {
+    await this.client.post(`/loans/${loanId}/mark-defaulted`);
   }
 }

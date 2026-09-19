@@ -23,6 +23,15 @@ repository admin. The manual rollback path requires the staging SSH key.
 **Expected outcome:** both health checks pass and the deployed commit is the one
 you intended. If they do not, the workflow rolls back automatically.
 
+**Data:** the staging database is seeded, so this instance shows synthetic
+accounts and loans. That is deliberate, and it is why staging sets
+`NEXT_PUBLIC_DEMO_DATA=true` so the interface labels the rows. Do not seed a
+database that anyone reads as production — `backend/src/seed/guard.ts` refuses
+when `NODE_ENV=production`, and refuses any other deployed environment unless
+`SEED_ALLOW_NON_DEVELOPMENT=true` is set explicitly. The inventory of what the
+seed writes, and how to tell whether a database has been seeded, is in
+[`docs/DEMO-DATA.md`](../DEMO-DATA.md).
+
 ---
 
 ## Prerequisites

@@ -12,9 +12,11 @@
       "default": "./dist/index.js"
     }
   },
-  "//": "jest is installed at the workspace root rather than in this package, so the test scripts reach up one level. `node_modules/jest/bin/jest.js` resolved to nothing from here, which made `npm test` in this package fail with a bare module-not-found.",
   "scripts": {
     "build": "tsc",
+    "//pretest": "This package's request and response types are aliases into @zizalend/types, so the types package has to be generated and built before anything resolves them. CI does this explicitly; doing it here as well is what makes `npm test` work in a fresh clone.",
+    "pretest": "npm run build --prefix ../types",
+    "//test": "jest is installed at the workspace root rather than in this package, so the test scripts reach up one level. `node_modules/jest/bin/jest.js` resolved to nothing from here, which made `npm test` in this package fail with a bare module-not-found.",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --watch",
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,22 @@
+{
+  "//": "Coverage floors for the backend suite, enforced by scripts/check-coverage-thresholds.mjs. Each value is set just under the level measured when coverage was introduced, so it fails on a regression and not on ordinary churn. A floor may only be raised; lowering one requires a reason in allowFloorDecrease, because that reason is what turns an exception into a decision a reviewer can see.",
+  "//scope": "A key ending in `/` covers every file whose path contains it, aggregating covered and total counts rather than averaging percentages — an average would let one large well-covered file hide a small untouched one.",
+  "floors": {
+    "global": { "statements": 62, "branches": 56, "functions": 65, "lines": 62 },
+    "src/auth/": { "statements": 98, "branches": 88, "functions": 98, "lines": 98 },
+    "src/config/": { "statements": 88, "branches": 79, "functions": 93, "lines": 88 },
+    "src/controllers/": { "statements": 54, "branches": 41, "functions": 58, "lines": 55 },
+    "src/cron/": { "statements": 25, "branches": 12, "functions": 10, "lines": 25 },
+    "src/db/": { "statements": 46, "branches": 41, "functions": 40, "lines": 48 },
+    "src/errors/": { "statements": 93, "branches": 78, "functions": 73, "lines": 93 },
+    "src/middleware/": { "statements": 86, "branches": 75, "functions": 88, "lines": 88 },
+    "src/routes/": { "statements": 94, "branches": 98, "lines": 94 },
+    "src/schemas/": { "statements": 90, "branches": 38, "functions": 48, "lines": 93 },
+    "src/seed/": { "statements": 14, "branches": 19, "functions": 16, "lines": 14 },
+    "src/services/": { "statements": 56, "branches": 51, "functions": 58, "lines": 57 },
+    "src/utils/": { "statements": 71, "branches": 82, "functions": 78, "lines": 71 }
+  },
+  "//routes": "`functions` is omitted for src/routes/: the module exports arrow functions registered with the router, which are invoked by Express rather than by the suite, so the measurement is 0% and a floor there would assert nothing.",
+  "//seed": "src/seed is exercised by the seeding CLI against a database rather than by the unit suite; its guard is covered directly (src/seed/__tests__) and the floor tracks the rest.",
+  "allowFloorDecrease": {}
+}

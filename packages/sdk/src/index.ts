@@ -26,6 +26,12 @@ export {
   ApiError,
   RequestDeadlineExceededError,
   parseRetryAfterMs,
+  // The retry policy is part of the contract, not an implementation detail: a caller deciding
+  // whether a timed-out `POST` is safe to send again needs to know which methods the client
+  // will repeat and what key it attaches when it does.
+  IDEMPOTENT_METHODS,
+  IDEMPOTENCY_KEY_HEADER,
+  generateIdempotencyKey,
 } from "./client.js";
 export type {
   ClientConfig,

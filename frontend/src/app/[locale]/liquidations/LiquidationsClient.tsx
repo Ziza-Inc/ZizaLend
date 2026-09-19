@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatCurrency } from "@/app/utils/amount";
 import { AlertTriangle, RefreshCw, ShieldAlert } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
@@ -16,10 +17,6 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { useContractToast } from "../../hooks/useContractToast";
 import { selectWalletAddress, useWalletStore } from "../../stores/useWalletStore";
 import { useQueryClient } from "@tanstack/react-query";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-}
 
 function formatRatio(value: number) {
   return value > 10 ? `${value.toFixed(2)}%` : `${(value * 100).toFixed(2)}%`;

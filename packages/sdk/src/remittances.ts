@@ -4,6 +4,8 @@
  * Cross-border payment operations via Stellar blockchain.
  */
 
+import type { components } from "@zizalend/types";
+
 import { Client } from "./client.js";
 import {
   collectPages,
@@ -11,46 +13,19 @@ import {
   type PaginatorOptions,
 } from "./pagination.js";
 
-export interface Remittance {
-  id: number;
-  senderAddress: string;
-  recipientAddress: string;
-  amount: string;
-  token: string;
-  status: string;
-  txHash?: string | null;
-  createdAt: string;
-}
+// Spec-derived, as in `loans.ts`.
+export type Remittance = components["schemas"]["Remittance"];
 
-export interface RemittanceResponse {
-  success: boolean;
-  data: Remittance;
-  unsignedTxXdr?: string;
-  networkPassphrase?: string;
-}
+export type RemittanceResponse = components["schemas"]["RemittanceResponse"];
 
-export interface CreateRemittanceInput {
-  recipientAddress: string;
-  amount: string;
-  token: string;
-}
+export type CreateRemittanceInput =
+  components["schemas"]["CreateRemittanceInput"];
 
-export interface PaginatedRemittancesResponse {
-  success: boolean;
-  data: Remittance[];
-  page_info: {
-    limit: number;
-    next_cursor?: string | null;
-    has_previous: boolean;
-  };
-}
+export type PaginatedRemittancesResponse =
+  components["schemas"]["PaginatedRemittancesResponse"];
 
-export interface SubmittedTransactionResponse {
-  success: boolean;
-  txHash: string;
-  status: string;
-  resultXdr?: string;
-}
+export type SubmittedTransactionResponse =
+  components["schemas"]["SubmittedTransactionResponse"];
 
 export class Remittances {
   constructor(private client: Client) {}

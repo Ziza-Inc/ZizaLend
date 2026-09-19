@@ -24,7 +24,15 @@ jest.unstable_mockModule('../jobMetricsService.js', () => ({
   },
 }));
 
+const { setHostResolver } = await import('../../utils/webhookUrlGuard.js');
 const { WebhookService, getRetryDelayMs } = await import('../webhookService.js');
+
+// Delivery resolves the subscriber's hostname before it fetches, so that a name pointing at a
+// private address is refused. These cases are about retry scheduling, not about the destination
+// being reachable, so the addresses are stated rather than looked up — and `fetch` is mocked, so
+// nothing connects anywhere either way.
+const PUBLIC_ADDRESS = '93.184.216.34';
+setHostResolver(async () => [PUBLIC_ADDRESS]);
 
 const MAX_RETRY_ATTEMPTS = 4;
 

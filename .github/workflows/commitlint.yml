@@ -32,8 +32,25 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache npm tarballs
+        # This job has no lockfile to key on: commitlint is installed ad hoc because no
+        # workspace depends on it, which is also why the install is not reproducible the way
+        # `npm ci` is. The closest honest key is the config the linter reads, so a change to the
+        # rules re-resolves the CLI while an ordinary commit reuses the tarballs already
+        # downloaded. `~/.npm` is npm's content-addressed cache, so a newer CLI release is an
+        # addition to it rather than a miss.
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: commitlint-npm-${{ runner.os }}-${{ hashFiles('commitlint.config.js') }}
+          restore-keys: |
+            commitlint-npm-${{ runner.os }}-
+
       - name: Install commitlint
-        run: npm install --no-save @commitlint/cli @commitlint/config-conventional
+        # `--workspaces=false` because the repository root is an npm workspace root: without it
+        # npm installs both packages under `packages/` and their whole dependency trees to lint
+        # two commit messages.
+        run: npm install --no-save --workspaces=false @commitlint/cli @commitlint/config-conventional
 
       - name: Lint PR commits
         if: github.event_name == 'pull_request'

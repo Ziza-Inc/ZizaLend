@@ -103,8 +103,11 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: postgres://pguser:pgpass@localhost:5432/ZizaLend_test
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        # `test:coverage` is the same suite plus `--coverage` and the floor check. Coverage is
+        # measured here rather than in a job of its own so the measurement describes the tests that
+        # actually ran against the Postgres and Redis services above.
+        run: npm run test:coverage
         working-directory: backend
         env:
           NODE_ENV: test
@@ -121,6 +124,21 @@ jobs:
           LOAN_MANAGER_ADMIN_SECRET: test_admin_secret
           INTERNAL_API_KEY: test_internal_api_key
           FRONTEND_URL: https://frontend.example.com
+
+      - name: Publish the coverage summary and enforce the ratchet
+        # The floors themselves are checked by `test:coverage`. This adds the two things that need
+        # the base branch: the markdown summary on the pull request, and a refusal of a floor that
+        # was lowered without a reason in `allowFloorDecrease`. `actions/checkout` is shallow, so
+        # the base commit is fetched first — without it the comparison would silently skip.
+        run: |
+          args=(--project backend --summary "$GITHUB_STEP_SUMMARY")
+          if [ -n "${{ github.event.pull_request.base.sha || '' }}" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            git fetch --depth=1 origin "$base" || true
+            args+=(--base "$base")
+          fi
+          node scripts/check-coverage-thresholds.mjs "${args[@]}"
+        working-directory: .
 
   migration-paths:
     # Observed ~7s. Only lists changed paths; it never installs anything.
@@ -299,11 +317,21 @@ jobs:
       - name: Type check
         run: npm run typecheck
         working-directory: frontend
-      - name: Unit tests
-        run: npm test
+      - name: Unit tests with coverage
+        run: npm run test:coverage
         working-directory: frontend
         env:
           NODE_ENV: test
+      - name: Publish the coverage summary and enforce the ratchet
+        run: |
+          args=(--project frontend --summary "$GITHUB_STEP_SUMMARY")
+          if [ -n "${{ github.event.pull_request.base.sha || '' }}" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            git fetch --depth=1 origin "$base" || true
+            args+=(--base "$base")
+          fi
+          node scripts/check-coverage-thresholds.mjs "${args[@]}"
+        working-directory: .
       - name: Build
         run: npm run build
         working-directory: frontend
@@ -358,7 +386,18 @@ jobs:
 
   packages:
     needs: supply-chain-audit
-    timeout-minutes: 5
+    # This was the one job that installed dependencies with no cache, and it did it twice — once
+    # per package. `packages/types` and `packages/sdk` are npm workspaces declared by the root
+    # package.json, so a single install at the root covers both of them, and the root lockfile is
+    # what the cache is keyed on.
+    #
+    # `npm ci` rather than `npm install`: it installs the lockfile as committed, so the job
+    # exercises the dependency tree the repository actually pinned instead of resolving a fresh
+    # one on every run, and it fails loudly when package.json and the lockfile disagree.
+    #
+    # Raised from 5 so the SDK suite and its `pretest` types build fit inside the budget rather
+    # than the job being cancelled partway through a test run.
+    timeout-minutes: 8
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -367,10 +406,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: "npm"
+          # Deliberately the root lockfile: the two workspace packages have none of their own,
+          # and a cache pointed at a path that does not exist caches nothing while looking like
+          # it does.
+          cache-dependency-path: package-lock.json
 
-      - name: Install types dependencies
-        run: npm install
-        working-directory: packages/types
+      - name: Install workspace dependencies
+        run: npm ci
 
       - name: Generate types from OpenAPI
         run: npm run generate
@@ -384,10 +427,6 @@ jobs:
         run: npm run build
         working-directory: packages/types
 
-      - name: Install SDK dependencies
-        run: npm install
-        working-directory: packages/sdk
-
       - name: Check the SDK error-code union is current
         # The SDK derives its error-code union from `backend/src/errors/errorCodes.ts`. This
         # fails when a code is added or removed without regenerating, which is the only thing
@@ -396,6 +435,13 @@ jobs:
 
       - name: Type check SDK
         run: npm run typecheck
+        working-directory: packages/sdk
+
+      - name: Test SDK
+        # The SDK test suite existed and passed locally, but no job ever ran it: `packages` only
+        # type-checked and built. That is what left the OpenAPI parity and spec-derivation tests
+        # unable to fail a pull request, which is the only thing they are for.
+        run: npm test
         working-directory: packages/sdk
 
       - name: Build SDK

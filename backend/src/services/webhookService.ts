@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { query } from '../db/connection.js';
 import logger from '../utils/logger.js';
+import { UnsafeWebhookUrlError, assertSafeWebhookUrl } from '../utils/webhookUrlGuard.js';
 
 export const SUPPORTED_WEBHOOK_EVENT_TYPES = [
   'LoanRequested',
@@ -173,6 +174,52 @@ function getWebhookMaxPayloadBytes(): number {
   return parsePositiveInt(process.env.WEBHOOK_MAX_PAYLOAD_BYTES, 64 * 1024);
 }
 
+/**
+ * Redirect statuses a delivery follows itself.
+ *
+ * `redirect: 'follow'` hands the chain to the runtime, which walks it without asking: a public
+ * endpoint that redirects to `http://169.254.169.254/latest/meta-data/` would be fetched before
+ * any check could refuse it. So the chain is followed by hand, one vetted hop at a time.
+ */
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+
+/** How many redirect hops a delivery follows before it is treated as a failure. */
+export const MAX_WEBHOOK_REDIRECTS = 5;
+
+/**
+ * How much of a response body is read before the rest is abandoned.
+ *
+ * Not a value the caller ever looks at: the status code is the whole result of a delivery. The
+ * cap exists so a hostile or merely talkative endpoint cannot make the worker buffer an
+ * unbounded body, which is the one part of the exchange the subscriber still controls.
+ */
+const WEBHOOK_MAX_RESPONSE_BYTES = 64 * 1024;
+
+/**
+ * Read at most the cap, then abandon the rest.
+ *
+ * A webhook response is never used, so this is about releasing the connection rather than
+ * getting any bytes: leaving a body unread keeps the socket open until the response is
+ * collected, and a redirect has to free its connection before the next hop.
+ */
+async function discardResponseBody(response: Response): Promise<void> {
+  const bodyStream = response.body;
+  if (!bodyStream) return;
+
+  const reader = bodyStream.getReader();
+  let read = 0;
+
+  try {
+    while (read < WEBHOOK_MAX_RESPONSE_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      read += value?.byteLength ?? 0;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
 function summarizeOversizedPayload(
   payload: Record<string, unknown>,
   originalPayloadBytes: number,
@@ -280,22 +327,55 @@ async function postWebhook(
 ): Promise<Response> {
   const timeoutMs = getWebhookRequestTimeoutMs();
   const controller = new AbortController();
+  // One budget for the whole exchange, redirects included, so a chain of slow hops cannot
+  // outlive the timeout each hop would otherwise get of its own.
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
   timeoutHandle.unref?.();
 
   try {
-    return await fetch(callbackUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        // X-ZizaLend-Signature uses the GitHub/Stripe-style "sha256=<hex>"
-        // format so subscribers can verify payload integrity (see
-        // docs/wiki/webhook-signatures.md for the verification recipe).
-        ...(signature && { 'x-ZizaLend-signature': `sha256=${signature}` }),
-      },
-      body,
-      signal: controller.signal,
-    });
+    // Vetted here and not only at subscription time: a hostname that resolved publicly when it
+    // was registered can resolve privately now, and a stored URL is not evidence about the
+    // network it currently points at.
+    //
+    // The vetted URL is deliberately not the one that gets fetched. `new URL(...).toString()`
+    // appends a trailing slash, and a subscriber that routes on an empty path would start
+    // receiving deliveries at a different path than the one it registered.
+    await assertSafeWebhookUrl(callbackUrl);
+    let currentUrl = callbackUrl;
+
+    for (let hop = 0; ; hop += 1) {
+      const response = await fetch(currentUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          // X-ZizaLend-Signature uses the GitHub/Stripe-style "sha256=<hex>"
+          // format so subscribers can verify payload integrity (see
+          // docs/wiki/webhook-signatures.md for the verification recipe).
+          ...(signature && { 'x-ZizaLend-signature': `sha256=${signature}` }),
+        },
+        body,
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      const isRedirect = REDIRECT_STATUS_CODES.has(response.status);
+      const location = isRedirect ? (response.headers?.get?.('location') ?? null) : null;
+
+      await discardResponseBody(response);
+
+      if (!isRedirect || !location) return response;
+
+      if (hop >= MAX_WEBHOOK_REDIRECTS) {
+        throw new Error(
+          `Webhook redirect chain exceeded ${MAX_WEBHOOK_REDIRECTS} hops (last: ${currentUrl})`,
+        );
+      }
+
+      // Each hop is vetted on its own, so a redirect to a private address is refused exactly
+      // where a direct request to one would be.
+      const next = new URL(location, currentUrl);
+      currentUrl = (await assertSafeWebhookUrl(next.toString())).toString();
+    }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Webhook request timed out after ${timeoutMs}ms`, { cause: error });
@@ -468,9 +548,13 @@ export class WebhookService {
         }
       }
     } catch (error) {
-      const newAttemptCount = attemptCount + 1;
-      const nextRetryTime =
-        newAttemptCount < MAX_RETRY_ATTEMPTS
+      // A refused destination is terminal, and it did not consume an attempt: nothing was sent,
+      // and re-resolving a name that points somewhere private only repeats the refusal.
+      const refused = error instanceof UnsafeWebhookUrlError;
+      const newAttemptCount = refused ? attemptCount : attemptCount + 1;
+      const nextRetryTime = refused
+        ? null
+        : newAttemptCount < MAX_RETRY_ATTEMPTS
           ? new Date(Date.now() + getRetryDelayMs(newAttemptCount))
           : null;
 
@@ -486,7 +570,15 @@ export class WebhookService {
         [newAttemptCount, errorMsg, nextRetryTime, new Date(), deliveryId],
       );
 
-      if (nextRetryTime) {
+      if (refused) {
+        logger.withContext().error('Refused to deliver a webhook to an unsafe URL', {
+          deliveryId,
+          subscriptionId,
+          eventId,
+          reason: (error as UnsafeWebhookUrlError).reason,
+          error,
+        });
+      } else if (nextRetryTime) {
         logger.withContext().warn('Webhook delivery error, scheduled retry', {
           deliveryId,
           subscriptionId,
@@ -673,6 +765,35 @@ export class WebhookService {
         });
       }
     } catch (error) {
+      if (error instanceof UnsafeWebhookUrlError) {
+        // Recorded with `attempt_count = 0` and no retry: no request was made, and no later one
+        // would be either. The row is kept so the destination is visible as refused rather than
+        // as a delivery that silently never happened.
+        await query(
+          `INSERT INTO webhook_deliveries (
+            subscription_id,
+            event_id,
+            event_type,
+            attempt_count,
+            last_error,
+            payload,
+            next_retry_at
+          )
+          VALUES ($1, $2, $3, 0, $4, $5::jsonb, NULL)`,
+          [subscriptionId, payload.payload.eventId, payload.payload.eventType, error.message, body],
+        );
+
+        logger.withContext().error('Refused to deliver a webhook to an unsafe URL', {
+          subscriptionId,
+          callbackUrl,
+          eventId: payload.payload.eventId,
+          reason: error.reason,
+          error,
+        });
+
+        return;
+      }
+
       // Network error or timeout, schedule first retry
       const nextRetryAt = new Date(Date.now() + getRetryDelayMs(1));
       await query(

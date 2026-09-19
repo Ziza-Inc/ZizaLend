@@ -415,5 +415,83 @@
       "refresh": "Refresh",
       "disconnect": "Disconnect"
     }
+  },
+  "Metadata": {
+    "home": {
+      "title": "Borderless P2P Lending & Remittance",
+      "description": "Turn remittance history into credit history with micro-loans and instant cross-border transfers on Stellar."
+    },
+    "activity": {
+      "title": "Activity",
+      "description": "Every loan event and remittance on your account, in one timeline."
+    },
+    "analytics": {
+      "title": "Analytics",
+      "description": "Pool performance, yield, utilisation and risk across the Zizalend protocol."
+    },
+    "kingdom": {
+      "title": "Your Kingdom",
+      "description": "Your credit tier, achievements and the rewards you have unlocked."
+    },
+    "lend": {
+      "title": "Lender Portfolio",
+      "description": "Monitor pool performance, funded loans, deposits, withdrawals and expected lender yield."
+    },
+    "liquidations": {
+      "title": "Liquidations",
+      "description": "Monitor and manage collateral liquidations for undercollateralised loans."
+    },
+    "loans": {
+      "title": "Borrower Portfolio",
+      "description": "Review your active loans, repayment due dates and overall portfolio health."
+    },
+    "loanDetail": {
+      "title": "Loan Details",
+      "description": "Repayment schedule, collateral status and current status for a single loan."
+    },
+    "notifications": {
+      "title": "Notifications",
+      "description": "Loan events, repayment reminders and account updates."
+    },
+    "remittances": {
+      "title": "Remittances",
+      "description": "Track the cross-border transfers that build your on-chain credit history."
+    },
+    "repay": {
+      "title": "Repay a Loan",
+      "description": "Build, review and submit a repayment for one of your loans."
+    },
+    "requestLoan": {
+      "title": "Request a Loan",
+      "description": "See what your credit score unlocks and submit a loan request."
+    },
+    "sendRemittance": {
+      "title": "Send a Remittance",
+      "description": "Send a cross-border transfer and record it against your credit history."
+    },
+    "settings": {
+      "title": "Settings",
+      "description": "Your profile, wallet and notification preferences."
+    },
+    "uiDemo": {
+      "title": "Component Showcase",
+      "description": "A development showcase of the interface components."
+    },
+    "wallet": {
+      "title": "Wallet",
+      "description": "Your Stellar balances, payment history and address."
+    },
+    "adminDisputes": {
+      "title": "Disputes",
+      "description": "Review and resolve borrower disputes."
+    },
+    "adminDisputeDetail": {
+      "title": "Dispute Details",
+      "description": "The evidence, history and resolution for one dispute."
+    },
+    "adminGovernance": {
+      "title": "Governance",
+      "description": "Proposals, approvals and the multisig state of the protocol."
+    }
   }
 }

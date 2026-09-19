@@ -4,29 +4,14 @@
  * Administrative operations: audit logs, disputes, governance.
  */
 
+import type { components } from '@zizalend/types';
+
 import { Client } from './client.js';
 
-export interface AuditLogEntry {
-  id: number;
-  actor: string;
-  action: string;
-  target?: string;
-  payload?: Record<string, unknown>;
-  ipAddress?: string | null;
-  status: number;
-  createdAt: string;
-}
+// Spec-derived, as in `loans.ts`.
+export type AuditLogEntry = components['schemas']['AuditLogEntry'];
 
-export interface LoanDispute {
-  id: number;
-  loanId: number;
-  borrower: string;
-  reason: string;
-  status: 'pending' | 'resolved' | 'rejected';
-  resolution?: string | null;
-  createdAt: string;
-  resolvedAt?: string | null;
-}
+export type LoanDispute = components['schemas']['LoanDispute'];
 
 export class Admin {
   constructor(private client: Client) {}

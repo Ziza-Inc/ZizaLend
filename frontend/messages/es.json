@@ -415,5 +415,83 @@
       "refresh": "Actualizar",
       "disconnect": "Desconectar"
     }
+  },
+  "Metadata": {
+    "home": {
+      "title": "Préstamos P2P y remesas sin fronteras",
+      "description": "Convierte tu historial de remesas en historial crediticio con micropréstamos y transferencias internacionales instantáneas en Stellar."
+    },
+    "activity": {
+      "title": "Actividad",
+      "description": "Todos los eventos de préstamos y remesas de tu cuenta, en una sola línea de tiempo."
+    },
+    "analytics": {
+      "title": "Analíticas",
+      "description": "Rendimiento del fondo, rentabilidad, utilización y riesgo del protocolo Zizalend."
+    },
+    "kingdom": {
+      "title": "Tu Reino",
+      "description": "Tu nivel de crédito, tus logros y las recompensas que has desbloqueado."
+    },
+    "lend": {
+      "title": "Cartera del prestamista",
+      "description": "Supervisa el rendimiento del fondo, los préstamos financiados, los depósitos, los retiros y la rentabilidad esperada."
+    },
+    "liquidations": {
+      "title": "Liquidaciones",
+      "description": "Supervisa y gestiona las liquidaciones de garantías de préstamos con garantía insuficiente."
+    },
+    "loans": {
+      "title": "Cartera del prestatario",
+      "description": "Revisa tus préstamos activos, las fechas de pago y la salud general de tu cartera."
+    },
+    "loanDetail": {
+      "title": "Detalles del préstamo",
+      "description": "Calendario de pagos, estado de la garantía y estado actual de un préstamo."
+    },
+    "notifications": {
+      "title": "Notificaciones",
+      "description": "Eventos de préstamos, recordatorios de pago y novedades de tu cuenta."
+    },
+    "remittances": {
+      "title": "Remesas",
+      "description": "Sigue las transferencias internacionales que construyen tu historial crediticio en la cadena."
+    },
+    "repay": {
+      "title": "Pagar un préstamo",
+      "description": "Crea, revisa y envía el pago de uno de tus préstamos."
+    },
+    "requestLoan": {
+      "title": "Solicitar un préstamo",
+      "description": "Descubre lo que habilita tu puntaje de crédito y solicita un préstamo."
+    },
+    "sendRemittance": {
+      "title": "Enviar una remesa",
+      "description": "Envía una transferencia internacional y regístrala en tu historial crediticio."
+    },
+    "settings": {
+      "title": "Ajustes",
+      "description": "Tu perfil, tu cartera y tus preferencias de notificación."
+    },
+    "uiDemo": {
+      "title": "Catálogo de componentes",
+      "description": "Una muestra de los componentes de la interfaz para desarrollo."
+    },
+    "wallet": {
+      "title": "Cartera",
+      "description": "Tus saldos en Stellar, tu historial de pagos y tu dirección."
+    },
+    "adminDisputes": {
+      "title": "Disputas",
+      "description": "Revisa y resuelve las disputas de los prestatarios."
+    },
+    "adminDisputeDetail": {
+      "title": "Detalles de la disputa",
+      "description": "Las pruebas, el historial y la resolución de una disputa."
+    },
+    "adminGovernance": {
+      "title": "Gobernanza",
+      "description": "Propuestas, aprobaciones y el estado multifirma del protocolo."
+    }
   }
 }

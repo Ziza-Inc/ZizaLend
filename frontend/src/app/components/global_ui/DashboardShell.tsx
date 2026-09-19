@@ -7,6 +7,7 @@ import { BottomNav } from "./BottomNav";
 import { Header } from "./Header";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { OfflineBanner } from "./OfflineBanner";
+import { DemoDataBanner } from "./DemoDataBanner";
 import { InstallPrompt } from "./InstallPrompt";
 
 interface DashboardShellProps {
@@ -65,6 +66,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
+        {/* Above `OfflineBanner`: whether the data is real outranks whether it is fresh. */}
+        <DemoDataBanner />
         <OfflineBanner />
 
         {/* Dynamic Page Content */}

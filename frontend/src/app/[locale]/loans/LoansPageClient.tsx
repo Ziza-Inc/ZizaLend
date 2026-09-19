@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatCurrency } from "@/app/utils/amount";
 import Link from "next/link";
 import { ArrowRight, CalendarRange, CircleDollarSign, HandCoins, ShieldCheck } from "lucide-react";
 import { ErrorBoundary } from "../../components/global_ui/ErrorBoundary";
@@ -13,10 +14,6 @@ import { useTranslations, useLocale } from "next-intl";
 import { EmptyState } from "../../components/ui/EmptyState";
 
 const PAGE_SIZE = 20;
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
-}
 
 function getLoanDisplayStatus(status: string, nextPaymentDeadline: string, now: number) {
   if (status !== "active") {

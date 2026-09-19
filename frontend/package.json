@@ -17,6 +17,7 @@
     "audit:a11y": "next build && npx axe-playwright",
     "format": "prettier --write .",
     "test": "jest",
+    "test:coverage": "jest --coverage && node ../scripts/check-coverage-thresholds.mjs --project frontend",
     "test:watch": "jest --watch",
     "test:e2e": "playwright test",
     "prepare": "husky"

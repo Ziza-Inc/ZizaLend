@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl"; // <--- This is the new one
 import { useRouter } from "next/navigation";
+import { formatCurrency } from "@/app/utils/amount";
 import {
   useWalletStore,
   selectIsWalletConnected,
@@ -148,10 +149,6 @@ function RepaymentReminderBanner({
       </div>
     </div>
   );
-}
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
 export default function Home() {

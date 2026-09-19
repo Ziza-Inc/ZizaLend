@@ -679,6 +679,8 @@ The full model — including the per-function permission matrix and the threat m
 
 **Observability:** structured JSON logs via Winston, Prometheus counters and histograms for indexer lag and job latency, Sentry for both frontend and backend, and an immutable audit log for every admin and governance action.
 
+Every Prometheus label draws from a bounded, declared domain (`backend/src/middleware/metricsLabels.ts`): requests are labelled by route *template* rather than by path, so a loan id or a scanner's URL never becomes a time series of its own. The declared domains are asserted against the live registry in `backend/src/__tests__/metricsCardinality.test.ts`.
+
 **Runbooks:** **[docs/runbooks/](docs/runbooks/)** covers indexer recovery and staging deployment. **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** covers the failures people actually hit, and the data model is documented in **[docs/DATABASE.md](docs/DATABASE.md)**.
 
 ---

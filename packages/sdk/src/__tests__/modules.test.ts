@@ -405,7 +405,10 @@ describe('Remittances', () => {
     mockSuccess(mockFetch, { success: true, data: { id: 1, senderAddress: 'GABC', recipientAddress: 'GXYZ', amount: '500', token: 'USDC', status: 'pending', createdAt: '2024-01-01' }, unsignedTxXdr: 'xdr', networkPassphrase: '' });
 
     const result = await remit.create({ recipientAddress: 'GXYZ', amount: '500', token: 'USDC' });
-    expect(result.data.recipientAddress).toBe('GXYZ');
+    // `data` is optional in the spec's `RemittanceResponse` — the schema is shared with the
+    // `POST /remittances` response, which does not declare it required — so the type derived from
+    // the spec is the one that governs here.
+    expect(result.data?.recipientAddress).toBe('GXYZ');
     expect(result.unsignedTxXdr).toBe('xdr');
   });
 

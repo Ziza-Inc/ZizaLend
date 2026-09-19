@@ -1,14 +1,11 @@
 "use client";
 
 import { TxHashLink } from "./TxHashLink";
+import { formatCurrency, isPositiveAmount } from "@/app/utils/amount";
 import type { LoanEvent } from "../../hooks/useApi";
 
 interface LoanTimelineProps {
   events: LoanEvent[];
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -47,9 +44,12 @@ export function LoanTimeline({ events }: LoanTimelineProps) {
                     {new Date(event.timestamp).toLocaleString()}
                   </p>
                 </div>
-                {Number(event.amount) > 0 && (
+                {/* The amount is compared and formatted on its exact digits. Decimal amounts
+                    from the API arrive as strings, so the previous `Number(event.amount)` was a
+                    float round-trip that a large event amount would have lost digits in. */}
+                {isPositiveAmount(event.amount) && (
                   <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                    Amount: {formatCurrency(Number(event.amount))}
+                    Amount: {formatCurrency(event.amount)}
                   </p>
                 )}
                 {event.txHash && (

@@ -4,6 +4,8 @@
  * Transaction history for the authenticated user.
  */
 
+import type { components } from "@zizalend/types";
+
 import { Client } from "./client.js";
 import {
   collectPages,
@@ -11,24 +13,10 @@ import {
   type PaginatorOptions,
 } from "./pagination.js";
 
-export interface Transaction {
-  id: number;
-  type: string;
-  amount: string;
-  status: string;
-  txHash?: string | null;
-  createdAt: string;
-}
+// Spec-derived, as in `loans.ts`.
+export type Transaction = components["schemas"]["Transaction"];
 
-export interface TransactionsResponse {
-  success: boolean;
-  data: Transaction[];
-  page_info?: {
-    limit: number;
-    next_cursor?: string | null;
-    has_previous?: boolean;
-  };
-}
+export type TransactionsResponse = components["schemas"]["TransactionsResponse"];
 
 export class Transactions {
   constructor(private client: Client) {}
