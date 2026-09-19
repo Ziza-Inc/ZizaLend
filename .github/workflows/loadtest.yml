@@ -8,8 +8,17 @@ on:
         required: true
         default: 'https://staging.ZizaLend.com'
 
+concurrency:
+  # A load test measures a target, and two of them measuring the same target at once measure
+  # neither. Only dispatchable by hand, so there is no default-branch run to protect.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   k6-load-test:
+    # The baseline scenario is a fixed-duration run; this bounds a hung target rather than the
+    # scenario itself.
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

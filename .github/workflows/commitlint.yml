@@ -6,12 +6,21 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  # Only the newest commit range on a ref is worth linting; the earlier ones describe a
+  # revision that no longer exists. The default branch is exempt so a main run is never
+  # cancelled by a later one.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
   commitlint:
+    # Observed ~20s: an npm install of the CLI plus two lints.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

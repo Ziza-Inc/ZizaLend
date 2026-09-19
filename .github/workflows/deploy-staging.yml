@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  # Serialised, never cancelled. This workflow only runs on the default branch, and a deploy
+  # killed halfway through can leave the staging host with one service on the new image and the
+  # other on the old one. Queuing is the correct trade here; waiting is cheaper than a split
+  # deployment nobody knows about. Same reasoning as deploy-frontend.yml.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
@@ -170,6 +178,9 @@ jobs:
   deploy:
     needs: build-and-push
     if: ${{ vars.STAGING_ENABLED == 'true' }}
+    # Observed ~90s: two SSH steps, migrations and a health check loop that can wait up to
+    # 2 minutes before it declares failure, plus the rollback path when it does.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     environment: staging
     steps:
