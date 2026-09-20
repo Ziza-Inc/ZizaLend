@@ -21,7 +21,6 @@ import { getLoanEvents } from '../controllers/indexerController.js';
 import { requireJwtAuth, requireScopes, requireWalletOwnership } from '../middleware/jwtAuth.js';
 import { requireLoanBorrowerAccess, requireLoanOwner } from '../middleware/loanAccess.js';
 import { validate, validateBody, validateParams, validateQuery } from '../middleware/validation.js';
-import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { borrowerParamSchema } from '../schemas/stellarSchemas.js';
 import {
   previewAmortizationSchema,
@@ -368,7 +367,6 @@ router.post(
   requireJwtAuth,
   requireScopes('write:loans'),
   validateBody(requestLoanSchema),
-  idempotencyMiddleware,
   requestLoan,
 );
 
@@ -423,7 +421,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(depositCollateralSchema),
-  idempotencyMiddleware,
   depositCollateral,
 );
 
@@ -474,7 +471,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(releaseCollateralSchema),
-  idempotencyMiddleware,
   releaseCollateral,
 );
 
@@ -533,7 +529,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(refinanceLoanSchema),
-  idempotencyMiddleware,
   refinanceLoan,
 );
 
@@ -588,7 +583,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(extendLoanSchema),
-  idempotencyMiddleware,
   extendLoan,
 );
 
@@ -638,7 +632,6 @@ router.post(
   requireScopes('write:loans'),
   validateParams(repayLoanParamsSchema),
   validateBody(liquidateLoanSchema),
-  idempotencyMiddleware,
   buildLiquidateLoan,
 );
 
@@ -681,7 +674,6 @@ router.post(
   requireJwtAuth,
   requireScopes('write:loans'),
   validateBody(submitTxSchema),
-  idempotencyMiddleware,
   submitTransaction,
 );
 
@@ -744,7 +736,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(repayLoanSchema),
-  idempotencyMiddleware,
   repayLoan,
 );
 
@@ -800,7 +791,6 @@ router.post(
   requireLoanOwner,
   validateParams(repayLoanParamsSchema),
   validateBody(submitTxSchema),
-  idempotencyMiddleware,
   submitTransaction,
 );
 

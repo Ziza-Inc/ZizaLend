@@ -26,6 +26,17 @@ export enum ErrorCode {
   VALIDATION_ERROR = 'VALIDATION_ERROR',
   INVALID_JSON = 'INVALID_JSON',
   PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
+  /**
+   * A state-changing request arrived without the `Idempotency-Key` header.
+   *
+   * Its own code rather than VALIDATION_ERROR so a client can tell "this endpoint needs a key"
+   * from "your payload is wrong" and retry correctly by minting a key instead of re-editing the
+   * body. The set of endpoints that require one is documented in
+   * `docs/wiki/api-idempotency.md`.
+   */
+  MISSING_IDEMPOTENCY_KEY = 'MISSING_IDEMPOTENCY_KEY',
+  /** The `Idempotency-Key` header was supplied but is not a usable token. */
+  INVALID_IDEMPOTENCY_KEY = 'INVALID_IDEMPOTENCY_KEY',
 
   // Authentication Errors (401)
   UNAUTHORIZED = 'UNAUTHORIZED',
@@ -268,6 +279,22 @@ export const ERROR_CODE_REGISTRY: Record<ErrorCode, ErrorCodeMetadata> = {
     httpStatus: 409,
     description: 'This request has already been processed',
     suggestedAction: 'Check if the operation was already completed',
+  },
+  [ErrorCode.MISSING_IDEMPOTENCY_KEY]: {
+    code: ErrorCode.MISSING_IDEMPOTENCY_KEY,
+    message: 'Idempotency-Key header is required',
+    httpStatus: 400,
+    description:
+      'This endpoint changes state, so it requires an Idempotency-Key header to make a retry safe',
+    suggestedAction:
+      'Send a unique Idempotency-Key per logical operation and reuse the same key when retrying',
+  },
+  [ErrorCode.INVALID_IDEMPOTENCY_KEY]: {
+    code: ErrorCode.INVALID_IDEMPOTENCY_KEY,
+    message: 'Invalid Idempotency-Key header',
+    httpStatus: 400,
+    description: 'The Idempotency-Key must be 8-200 characters of [A-Za-z0-9._:-]',
+    suggestedAction: 'Use an opaque token such as a UUID; do not send a natural key or a timestamp',
   },
 
   // Rate Limiting

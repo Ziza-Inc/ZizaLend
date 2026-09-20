@@ -24,6 +24,7 @@ import remittanceRoutes from './routes/remittanceRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 import { requireApiKey } from './middleware/auth.js';
 import { globalRateLimiter } from './middleware/rateLimiter.js';
+import { idempotencyMiddleware } from './middleware/idempotency.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { metricsHandler, metricsMiddleware } from './middleware/metrics.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -373,6 +374,17 @@ app.get(
     });
   }),
 );
+
+// ── Idempotency ───────────────────────────────────────────────────
+// Mounted once, ahead of the routers, rather than route by route: the guarantee that a retried
+// state-changing request cannot execute twice is a property of the API surface, and a per-route
+// mount only holds for the routes somebody remembered to annotate. `middleware/idempotencyPolicy.ts`
+// decides which requests have to carry an `Idempotency-Key`; everything else passes through
+// untouched. See `docs/wiki/api-idempotency.md`.
+app.use('/api', idempotencyMiddleware);
+// `/user` is a separate mount with its own mutating route (PATCH /user/profile), so it needs the
+// middleware too. `/metrics`, the docs and the health probes are deliberately left out.
+app.use('/user', idempotencyMiddleware);
 
 // Unversioned routes (maintained for backward compatibility; prefer /api/v1/*)
 app.use('/api', simulationRoutes);

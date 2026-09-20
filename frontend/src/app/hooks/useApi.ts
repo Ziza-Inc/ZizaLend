@@ -107,6 +107,115 @@ export const queryKeys = {
   },
 } as const;
 
+// ─── Idempotency keys ────────────────────────────────────────────────────────
+
+/**
+ * The header the API deduplicates state-changing requests on.
+ *
+ * The backend requires it on every `POST` and `PATCH` (`backend/src/middleware/idempotencyPolicy.ts`),
+ * so a write sent without one is refused with 400 rather than executed.
+ */
+const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+
+/**
+ * Methods the API will not execute without a replay key.
+ */
+const IDEMPOTENCY_REQUIRED_METHODS = new Set(["POST", "PATCH"]);
+
+/**
+ * Replay keys for the same request while it is still in flight.
+ *
+ * The point of a key is that two attempts at *one* logical operation carry the same value, and a
+ * key minted per `fetch` call does not do that: the double-click this protects against is two
+ * calls. Two identical requests that overlap in time are the same click arriving twice, so the
+ * second takes the first's key — the API then refuses it with 409 while the first runs and answers
+ * it with the first's response once the first has finished.
+ *
+ * Deliberately scoped to requests that are *currently* in flight rather than to a time window: the
+ * same request sent again after the first has completed is a new operation and gets a new key. A
+ * window would silently collapse a deliberately repeated identical write — sending the same
+ * amount twice — into one, which is a worse failure than the one being fixed.
+ */
+const inFlightIdempotencyKeys = new Map<string, { key: string; holders: number }>();
+
+/**
+ * Mint a replay key.
+ *
+ * `crypto.randomUUID` where it exists; a timestamp plus randomness otherwise. The value only has
+ * to be unique per operation — the server scopes it to the caller — so it is not a secret and
+ * does not need a dependency.
+ */
+export function mintIdempotencyKey(): string {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof webCrypto?.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/** What makes two requests the same operation, as far as the client can see. */
+function requestSignature(method: string, path: string, body: BodyInit | null | undefined): string {
+  return `${method} ${path} ${typeof body === "string" ? body : ""}`;
+}
+
+/**
+ * Take the replay key for this request, minting one if no identical request is in flight.
+ *
+ * The returned `release` must be called when the request settles; it is counted rather than
+ * simply deleted, so an overlapping pair does not lose the key while either is still running.
+ */
+function acquireIdempotencyKey(
+  method: string,
+  path: string,
+  body: BodyInit | null | undefined,
+): { key: string; release: () => void } {
+  const signature = requestSignature(method, path, body);
+  const existing = inFlightIdempotencyKeys.get(signature);
+
+  if (existing) {
+    existing.holders += 1;
+    return { key: existing.key, release: () => releaseSignature(signature) };
+  }
+
+  const key = mintIdempotencyKey();
+  inFlightIdempotencyKeys.set(signature, { key, holders: 1 });
+  return { key, release: () => releaseSignature(signature) };
+}
+
+function releaseSignature(signature: string): void {
+  const entry = inFlightIdempotencyKeys.get(signature);
+  if (!entry) return;
+
+  entry.holders -= 1;
+  if (entry.holders <= 0) inFlightIdempotencyKeys.delete(signature);
+}
+
+/** Forgets every in-flight key. Exported for tests, which must not inherit a pending request. */
+export function resetIdempotencyKeysForTests(): void {
+  inFlightIdempotencyKeys.clear();
+}
+
+/** The code the API answers a second request with while the first is still running. */
+const DUPLICATE_REQUEST_CODE = "DUPLICATE_REQUEST";
+const REPLAY_WAIT_MS = 250;
+const MAX_REPLAY_ATTEMPTS = 4;
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Whether this response says "the request with this key is already in flight". */
+async function isDuplicateRequest(response: Response): Promise<boolean> {
+  if (typeof response.clone !== "function") return false;
+
+  try {
+    const body = (await response.clone().json()) as { error?: { code?: string } } | null;
+    return body?.error?.code === DUPLICATE_REQUEST_CODE;
+  } catch {
+    // A body that cannot be parsed is not a duplicate acknowledgement.
+    return false;
+  }
+}
+
 // ─── Base fetch helper ────────────────────────────────────────────────────────
 
 /**
@@ -114,6 +223,10 @@ export const queryKeys = {
  * - Prepends the API base URL
  * - Sets JSON Content-Type
  * - Attaches the JWT Bearer token when one is stored
+ * - Attaches an `Idempotency-Key` to state-changing requests, reusing the key
+ *   for a repeat of the same request within {@link IDEMPOTENCY_KEY_WINDOW_MS}
+ * - Waits out a 409 `DUPLICATE_REQUEST` and replays it, so a double-click
+ *   resolves to the outcome of the first click instead of an error toast
  * - Throws a descriptive error on non-2xx responses
  */
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -136,8 +249,48 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     }
   }
 
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const method = (options.method ?? "GET").toUpperCase();
+  const needsReplayKey = IDEMPOTENCY_REQUIRED_METHODS.has(method);
 
+  // A caller-supplied key always wins: it may know that two calls are the same operation even
+  // when their bodies differ, which this signature cannot see.
+  const replay =
+    needsReplayKey && !headers.has(IDEMPOTENCY_KEY_HEADER)
+      ? acquireIdempotencyKey(method, path, options.body)
+      : null;
+
+  if (replay) headers.set(IDEMPOTENCY_KEY_HEADER, replay.key);
+
+  try {
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+      // The API refuses a second request under a key whose first request is still running. That is
+      // not a failure of this click — it is this click arriving twice — so wait for the first to
+      // finish and replay it. Past the attempt budget the 409 is surfaced as an error.
+      if (
+        response.status === 409 &&
+        needsReplayKey &&
+        attempt < MAX_REPLAY_ATTEMPTS &&
+        (await isDuplicateRequest(response))
+      ) {
+        await delay(REPLAY_WAIT_MS);
+        continue;
+      }
+
+      return await handleResponse<T>(response, token);
+    }
+  } finally {
+    // Released once the request has settled, so the next request of the same shape is a new
+    // operation rather than a replay of this one.
+    replay?.release();
+  }
+}
+
+/**
+ * Turn a response into a value or a thrown error.
+ */
+async function handleResponse<T>(response: Response, token: string | null | undefined): Promise<T> {
   if (response.status === 401 && token) {
     const error = await response
       .json()

@@ -85,6 +85,7 @@ beforeAll(async () => {
 
   const loanRes = await request(app)
     .post('/api/loans')
+    .set('Idempotency-Key', crypto.randomUUID())
     .set('Authorization', `Bearer ${authToken}`)
     .send({ amount: 1000, term: 12 });
 
@@ -94,6 +95,7 @@ beforeAll(async () => {
 
   const defaultRes = await request(app)
     .post(`/api/loans/${defaultedLoanId}/mark-defaulted`)
+    .set('Idempotency-Key', crypto.randomUUID())
     .set('Authorization', `Bearer ${authToken}`)
     .send({ borrower: TEST_PUBLIC_KEY });
 
@@ -120,6 +122,7 @@ describe('Loan Dispute/Appeal Mechanism', () => {
 
     const res = await request(app)
       .post('/api/loans/9999/contest-default')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${authToken}`)
       .send({ reason: 'Test reason' });
 
@@ -145,6 +148,7 @@ describe('Loan Dispute/Appeal Mechanism', () => {
 
     const res = await request(app)
       .post(`/api/loans/${defaultedLoanId}/contest-default`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Authorization', `Bearer ${authToken}`)
       .send({ reason: 'Indexer lag caused incorrect default.' });
 
@@ -236,6 +240,7 @@ describe('Loan Dispute/Appeal Mechanism', () => {
 
     const res = await request(app)
       .post(`/api/admin/loan-disputes/${disputeId}/resolve`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', ADMIN_API_KEY)
       .send({ action: 'confirm', resolution: 'Default was valid.' });
 
@@ -266,6 +271,7 @@ describe('Loan Dispute/Appeal Mechanism', () => {
 
     const res = await request(app)
       .post(`/api/admin/loan-disputes/${disputeId}/resolve`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', ADMIN_API_KEY)
       .send({ action: 'reverse', resolution: 'Default was incorrect.' });
 

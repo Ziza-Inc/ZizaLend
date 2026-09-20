@@ -135,6 +135,122 @@ backend/src/auth/rbac.ts            — ROLE_SCOPES, resolveRoleForWallet,
 
 ---
 
+## Audit trail
+
+Every privileged action — resolving a dispute, running default checks, reindexing,
+changing webhook subscriptions, building a rejection — writes a row to
+`audit_logs`. The property that matters is **completeness**, because a missing
+row does not read as "nothing happened", it reads as the absence of an action,
+and an operator investigating an incident will conclude the wrong thing.
+
+Three consequences follow from taking that seriously:
+
+**The middleware is mounted on the privileged routers, not on individual routes.**
+`router.use(auditLog)` in `adminRoutes.ts`, `indexerRoutes.ts` and
+`scoreRoutes.ts` means a route added next month is audited by whoever adds it,
+whether or not they knew this document existed. A per-route list is correct
+until the next commit; that is how the three dispute routes, and
+`POST /score/update` — reached with an admin key through a router that is not
+one of the admin ones — came to be the writes with no record.
+
+**Refused requests are recorded, not skipped.** The audit middleware runs
+*before* the authentication middleware, so an unauthorised attempt on an admin
+route leaves a row with `actor = 'unknown'` and `status = 401`. When the
+middleware sat behind the auth middleware — as it did when it was attached route
+by route — a denied privileged attempt produced no record at all, which is the
+inverse of what an audit trail is for.
+
+**Failures carry a reason.** `status` alone says an action failed and nothing
+about why. The error handler publishes the error code and message on
+`res.locals`, and the audit write records it in `reason`; a request whose
+requester disconnected mid-action is recorded with `status IS NULL` and a
+reason saying so, rather than being dropped for want of a response to inspect.
+
+`action` is the route *pattern* (`POST /admin/disputes/:disputeId/resolve`), not
+the requested path, because it is the column an operator filters on, and
+the object acted on is recorded separately in `target`. See
+[`DATABASE.md`](DATABASE.md#table-audit_logs) for the columns.
+
+The enumeration is kept honest by `backend/src/__tests__/auditLogCompleteness.test.ts`,
+which reads the routers' own source, compares the mutating routes it finds
+against a declared list, and asserts an entry is produced for a success, a
+failure *with its reason*, a rejection by role, an API-key-scoped route, and a
+hung-up request.
+
+---
+
+## Log and payload redaction
+
+Logs are the least carefully stored data in most systems, and the request
+objects that pass through this code carry signed transaction XDR, bearer
+tokens, API keys, wallet key material and personal identifiers. Two writers of
+durable text exist here — the logger and the `audit_logs` payload — and both go
+through one function, `redactForLogging` in
+[`backend/src/utils/redaction.ts`](../backend/src/utils/redaction.ts). A second
+implementation would be a second list to keep current, and the one that drifts
+is the one nobody reads.
+
+### Redaction is on the logger, not on a transport
+
+Winston applies the logger's format and then each transport's. The redaction
+pass is therefore registered on the logger itself, so a transport added later
+for a new sink inherits it. When it lived inside the console transport's own
+chain, adding a file transport silently wrote credentials to it and nothing
+failed — the difference between a guarantee and a habit.
+
+### Field names that are never written
+
+Matched case-insensitively against the key of every object at any depth:
+
+| Name | Why |
+| --- | --- |
+| `password`, `passwd` | Also appears inside connection strings |
+| `secret`, `seed`, `mnemonic`, `seedPhrase` | Stellar secret seeds, webhook signing secrets, JWT secrets |
+| `token`, `accessToken`, `refreshToken` | Bearer and OAuth tokens |
+| `authorization`, `cookie`, `set-cookie` | Whole header values |
+| `apiKey`, `api-key`, `x-api-key` | Internal API keys, which are scoped and long-lived |
+| `privateKey`, `publicKey` | Key material; the public key is an identifier for a person and belongs in the audit trail, not the application log |
+| `signature` | A replayed signed payload is still a replay |
+| `signedTx`, `xdr` | A signed envelope can be submitted by anyone holding it |
+
+### Patterns applied inside string values
+
+A name-based pass cannot see the shapes credentials actually arrive in: a token
+in a query string, a password inside a DSN, a secret seed with no field name at
+all. Every string at the boundary — including log **messages** and exception
+stacks — is scanned for:
+
+| Pattern | Example |
+| --- | --- |
+| A credential quoted in a serialised object | `"refreshToken": "…"` |
+| A credential in a query string | `?api_key=…&limit=10` → the key is replaced, the rest of the URL kept |
+| A named credential, absorbing a `Bearer` prefix | `Authorization: Bearer …`, `x-api-key: …` |
+| A bare bearer token | `Bearer …` |
+| A password in a connection string | `postgres://user:***@host/db` → user and host kept |
+| A Stellar secret seed | `S…` (56 base32 characters) |
+| A JWT | `eyJ….….…` |
+
+### Messages are escaped, so they cannot forge a log line
+
+Messages are routinely assembled out of request data: a loan rejection reason, a
+dispute resolution note, a notification title rendered from a profile. Written
+into a line-oriented log as-is, a `\n` in that data starts a *new* line that a
+reader cannot tell apart from one the service wrote, and an ANSI escape sequence
+in it rewrites whatever is displaying the log. Request-scoped messages therefore
+go through `escapeLogText` in the same module as they enter the logger: `\n`,
+`\r`, other control characters, quotes and backslashes become their JSON escape
+sequences. Escaping rather than deleting is deliberate — the line break the
+caller sent stays visible in the output, where dropping it would leave a log line
+that misrepresents its input.
+
+Tests: `backend/src/utils/__tests__/redaction.test.ts` asserts a known token is
+absent from the serialised output of a transport added *after* start-up, that a
+message carrying a line break reaches a transport escaped and still on one line,
+and `backend/src/tests/auditLog.test.ts` asserts the same for the recorded audit
+payload.
+
+---
+
 ## Contract-side trust model
 
 This document covers the backend API. The contracts enforce their own model, and

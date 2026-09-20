@@ -9,7 +9,9 @@ describe('Admin reindex endpoint', () => {
   });
 
   it('rejects requests without API key', async () => {
-    const response = await request(app).post('/api/admin/reindex?fromLedger=1&toLedger=2');
+    const response = await request(app)
+      .post('/api/admin/reindex?fromLedger=1&toLedger=2')
+      .set('Idempotency-Key', crypto.randomUUID());
 
     expect(response.status).toBe(401);
   });
@@ -17,6 +19,7 @@ describe('Admin reindex endpoint', () => {
   it('validates ledger range query parameters', async () => {
     const response = await request(app)
       .post('/api/admin/reindex?fromLedger=abc&toLedger=2')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', apiKey);
 
     expect(response.status).toBe(400);
@@ -32,6 +35,7 @@ describe('Admin reindex endpoint', () => {
   it('validates reprocess payload ids', async () => {
     const response = await request(app)
       .post('/api/admin/quarantine-events/reprocess')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', apiKey)
       .send({ ids: [1, 'bad-id'] });
 
@@ -43,6 +47,7 @@ describe('Admin reindex endpoint', () => {
     const loanIds = Array.from({ length: 1001 }, (_, index) => index + 1);
     const response = await request(app)
       .post('/api/admin/check-defaults')
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('x-api-key', apiKey)
       .send({ loanIds });
 

@@ -4,6 +4,7 @@ import { AppError } from '../errors/AppError.js';
 import { ErrorCode } from '../errors/errorCodes.js';
 import logger from '../utils/logger.js';
 import { Sentry } from '../config/sentry.js';
+import { setAuditFailureReason } from './auditPolicy.js';
 
 /**
  * Error type discriminator for client-side type narrowing.
@@ -124,6 +125,14 @@ export const errorHandler = (
 ): void => {
   const requestId = req.requestId as string | undefined;
 
+  // Publish the reason before writing the response, so the audit trail records why a privileged
+  // action failed rather than only that it did. The hand-off is explicit — the audit middleware
+  // reads this off `res.locals` — instead of the audit middleware parsing the response body, which
+  // is a wire format and would tie the audit record to it.
+  const publishReason = (errorCode: ErrorCode, message: string): void => {
+    setAuditFailureReason(res.locals as Record<string, unknown>, errorCode, message);
+  };
+
   // ── Zod Validation Errors ────────────────────────────────────
   if (err instanceof z.ZodError) {
     const issues = err.issues;
@@ -141,6 +150,8 @@ export const errorHandler = (
       method: req.method,
       errors: details,
     });
+
+    publishReason(ErrorCode.VALIDATION_ERROR, 'Validation failed');
 
     res.status(400).json(
       buildErrorResponse(400, 'Validation failed', ErrorCode.VALIDATION_ERROR, requestId, {
@@ -180,6 +191,7 @@ export const errorHandler = (
     }
 
     const responseMessage = err.isOperational ? err.message : 'Internal server error';
+    publishReason(err.errorCode, responseMessage);
 
     res.status(err.statusCode).json(
       buildErrorResponse(err.statusCode, responseMessage, err.errorCode, requestId, {
@@ -205,6 +217,8 @@ export const errorHandler = (
       method: req.method,
     });
 
+    publishReason(ErrorCode.INVALID_JSON, 'Request body is not valid JSON');
+
     res
       .status(400)
       .json(
@@ -225,6 +239,8 @@ export const errorHandler = (
       path: req.path,
       method: req.method,
     });
+
+    publishReason(ErrorCode.PAYLOAD_TOO_LARGE, 'Request payload too large');
 
     res
       .status(413)
@@ -255,6 +271,9 @@ export const errorHandler = (
 
   const shouldExposeStackTrace =
     process.env.NODE_ENV === 'development' && process.env.EXPOSE_STACK_TRACES === 'true';
+
+  // The message, not the stack: an audit row is read by an operator, and a stack is for the log.
+  publishReason(ErrorCode.INTERNAL_ERROR, err.message);
 
   res.status(500).json(
     buildErrorResponse(500, 'Internal server error', ErrorCode.INTERNAL_ERROR, requestId, {

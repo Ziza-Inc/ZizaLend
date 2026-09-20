@@ -42,9 +42,12 @@ const authHeader = `Bearer ${generateJwtToken(TEST_WALLET)}`;
 describe('Input Validation', () => {
   describe('POST /api/simulate', () => {
     it('should return 401 without authentication', async () => {
-      const response = await request(app).post('/api/simulate').send({
-        amount: 500,
-      });
+      const response = await request(app)
+        .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({
+          amount: 500,
+        });
 
       expect(response.status).toBe(401);
     });
@@ -56,6 +59,7 @@ describe('Input Validation', () => {
 
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({ amount: 500 });
 
@@ -66,6 +70,7 @@ describe('Input Validation', () => {
     it('should reject missing amount', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({});
 
@@ -76,6 +81,7 @@ describe('Input Validation', () => {
     it('should reject negative amount', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({ amount: -100 });
 
@@ -87,6 +93,7 @@ describe('Input Validation', () => {
     it('should reject amount exceeding maximum', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({ amount: 2000000 });
 
@@ -97,6 +104,7 @@ describe('Input Validation', () => {
     it('should reject zero amount', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({ amount: 0 });
 
@@ -107,6 +115,7 @@ describe('Input Validation', () => {
     it('should reject non-numeric amount', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({ amount: 'five hundred' });
 

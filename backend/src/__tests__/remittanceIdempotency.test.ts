@@ -35,7 +35,10 @@ jest.unstable_mockModule('../services/remittanceService.js', () => ({
 }));
 
 // In-memory fake so the idempotency middleware's cache reads/writes actually
-// persist across the two requests issued in the test below.
+// persist across the two requests issued in the test below. `setNotExists` and
+// `deleteIfMatch` are part of the contract the middleware relies on for its
+// in-flight claim, so the fake has to implement them or the middleware would be
+// exercised without the guard it is being tested for.
 const fakeCacheStore = new Map<string, unknown>();
 jest.unstable_mockModule('../services/cacheService.js', () => ({
   cacheService: {
@@ -45,6 +48,16 @@ jest.unstable_mockModule('../services/cacheService.js', () => ({
     }),
     delete: jest.fn(async (key: string) => {
       fakeCacheStore.delete(key);
+    }),
+    setNotExists: jest.fn(async (key: string, value: unknown) => {
+      if (fakeCacheStore.has(key)) return false;
+      fakeCacheStore.set(key, value);
+      return true;
+    }),
+    deleteIfMatch: jest.fn(async (key: string, expected: string) => {
+      if (fakeCacheStore.get(key) !== expected) return false;
+      fakeCacheStore.delete(key);
+      return true;
     }),
   },
 }));
@@ -107,10 +120,40 @@ describe('POST /api/remittances idempotency', () => {
     expect(mockCreateRemittance).toHaveBeenCalledTimes(1);
   });
 
-  it('creates a new remittance per request when no Idempotency-Key is supplied', async () => {
-    await request(app).post('/api/remittances').set(bearer(SENDER)).send(payload);
-    await request(app).post('/api/remittances').set(bearer(SENDER)).send(payload);
+  it('refuses the request when no Idempotency-Key is supplied, so a retry cannot disburse twice', async () => {
+    const response = await request(app).post('/api/remittances').set(bearer(SENDER)).send(payload);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('MISSING_IDEMPOTENCY_KEY');
+    expect(response.body.error.field).toBe('Idempotency-Key');
+    // The refusal happens before the controller, so nothing was recorded.
+    expect(mockCreateRemittance).not.toHaveBeenCalled();
+  });
+
+  it('treats two different keys as two distinct operations', async () => {
+    await request(app)
+      .post('/api/remittances')
+      .set(bearer(SENDER))
+      .set('Idempotency-Key', 'distinct-key-0001')
+      .send(payload);
+    await request(app)
+      .post('/api/remittances')
+      .set(bearer(SENDER))
+      .set('Idempotency-Key', 'distinct-key-0002')
+      .send(payload);
 
     expect(mockCreateRemittance).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses a malformed Idempotency-Key rather than silently ignoring it', async () => {
+    const response = await request(app)
+      .post('/api/remittances')
+      .set(bearer(SENDER))
+      .set('Idempotency-Key', 'has spaces')
+      .send(payload);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('INVALID_IDEMPOTENCY_KEY');
+    expect(mockCreateRemittance).not.toHaveBeenCalled();
   });
 });

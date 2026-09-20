@@ -30,13 +30,19 @@ import { listAuditLogs } from '../controllers/authController.js';
 
 const router = Router();
 
+// Every privileged action on this router is audited, including the ones that fail and the
+// ones whose requester hangs up mid-action. Mounted here rather than on each route because
+// the property that matters is completeness: a route added later must not be able to
+// escape the trail by not being listed. Reads pass through untouched — see auditPolicy.ts
+// for which methods are recorded and why.
+router.use(auditLog);
+
 router.get('/audit-logs', requireJwtAuth, requireRoles('admin'), listAuditLogs);
 
 router.post(
   '/loans/:loanId/build-reject',
   requireJwtAuth,
   requireRoles('admin'),
-  auditLog,
   buildRejectLoanTx,
 );
 /**
@@ -159,7 +165,6 @@ router.post(
   '/check-defaults',
   requireApiKey('admin:loans'),
   adminRateLimiter,
-  auditLog,
   validateBody(checkDefaultsBodySchema),
   asyncHandler(async (req, res) => {
     const result = await defaultChecker.checkOverdueLoans(req.body.loanIds);
@@ -194,13 +199,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/ReindexResponse'
  */
-router.post(
-  '/reindex',
-  requireApiKey('admin:indexer'),
-  adminRateLimiter,
-  auditLog,
-  reindexLedgerRange,
-);
+router.post('/reindex', requireApiKey('admin:indexer'), adminRateLimiter, reindexLedgerRange);
 
 /**
  * @swagger
@@ -258,7 +257,6 @@ router.post(
   '/quarantine-events/reprocess',
   requireApiKey('admin:indexer'),
   adminRateLimiter,
-  auditLog,
   reprocessQuarantinedEvents,
 );
 
@@ -298,7 +296,6 @@ router.post(
   '/webhooks',
   requireApiKey('admin:webhooks'),
   adminRateLimiter,
-  auditLog,
   createWebhookSubscription,
 );
 
@@ -346,7 +343,6 @@ router.delete(
   '/webhooks/:id',
   requireApiKey('admin:webhooks'),
   adminRateLimiter,
-  auditLog,
   deleteWebhookSubscription,
 );
 

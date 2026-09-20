@@ -29,7 +29,10 @@ describe('Centralized Error Handling', () => {
     });
 
     it('should return 404 for unknown POST routes with error code', async () => {
-      const response = await request(app).post('/unknown').send({ data: 'test' });
+      const response = await request(app)
+        .post('/unknown')
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({ data: 'test' });
 
       expect(response.status).toBe(404);
       expect(response.body.success).toBe(false);
@@ -44,6 +47,7 @@ describe('Centralized Error Handling', () => {
     it('should return 400 with validation failed message, error code, and type', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({});
 
@@ -65,6 +69,7 @@ describe('Centralized Error Handling', () => {
     it('should include field and message in each validation error detail', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send({});
 
@@ -89,6 +94,7 @@ describe('Centralized Error Handling', () => {
 
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .send(largePayload);
 
@@ -102,6 +108,7 @@ describe('Centralized Error Handling', () => {
     it('should return 400 with INVALID_JSON for a malformed JSON body', async () => {
       const response = await request(app)
         .post('/api/simulate')
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Authorization', authHeader)
         .set('Content-Type', 'application/json')
         .send('{"amount": }');
@@ -241,7 +248,10 @@ describe('Centralized Error Handling', () => {
 
   describe('Authentication error codes', () => {
     it('should return VALIDATION_ERROR with type for missing public key', async () => {
-      const response = await request(app).post('/api/auth/challenge').send({});
+      const response = await request(app)
+        .post('/api/auth/challenge')
+        .set('Idempotency-Key', crypto.randomUUID())
+        .send({});
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe('VALIDATION_ERROR');
@@ -253,6 +263,7 @@ describe('Centralized Error Handling', () => {
     it('should return INVALID_PUBLIC_KEY error code for invalid key format', async () => {
       const response = await request(app)
         .post('/api/auth/challenge')
+        .set('Idempotency-Key', crypto.randomUUID())
         .send({ publicKey: 'invalid' });
 
       expect(response.status).toBe(400);
@@ -264,6 +275,7 @@ describe('Centralized Error Handling', () => {
     it('should return VALIDATION_ERROR with type for missing signature in login', async () => {
       const response = await request(app)
         .post('/api/auth/login')
+        .set('Idempotency-Key', crypto.randomUUID())
         .send({ publicKey: 'GXXX', message: 'test' });
 
       expect(response.status).toBe(400);

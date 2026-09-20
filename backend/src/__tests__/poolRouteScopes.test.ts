@@ -84,6 +84,7 @@ describe('Pool write route authorization (#1179)', () => {
       it(`${route.method.toUpperCase()} ${route.path} → 403`, async () => {
         const res = await request(app)
           [route.method](route.path)
+          .set('Idempotency-Key', crypto.randomUUID())
           .set('Authorization', `Bearer ${lenderToken}`)
           .send(route.body);
 
@@ -97,6 +98,7 @@ describe('Pool write route authorization (#1179)', () => {
       it(`${route.method.toUpperCase()} ${route.path} → 403`, async () => {
         const res = await request(app)
           [route.method](route.path)
+          .set('Idempotency-Key', crypto.randomUUID())
           .set('Authorization', `Bearer ${borrowerToken}`)
           .send(route.body);
 
@@ -110,7 +112,10 @@ describe('Pool write route authorization (#1179)', () => {
   describe('no JWT', () => {
     for (const route of POOL_WRITE_ROUTES) {
       it(`${route.method.toUpperCase()} ${route.path} → 401`, async () => {
-        const res = await request(app)[route.method](route.path).send(route.body);
+        const res = await request(app)
+          [route.method](route.path)
+          .set('Idempotency-Key', crypto.randomUUID())
+          .send(route.body);
 
         expect(res.status).toBe(401);
       });

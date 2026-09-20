@@ -21,6 +21,7 @@
     "migrate:down": "node-pg-migrate down",
     "migrate:reconcile": "node scripts/reconcile-migration-names.mjs",
     "_migrations_note": "Single source of truth: backend/migrations/*.js (node-pg-migrate). Do NOT add .sql files to src/db/ — they are not executed by any script.",
+    "generate:spec": "tsx src/config/dumpSwagger.ts",
     "seed": "npm run seed:dev",
     "seed:dev": "tsx src/seed/index.ts",
     "seed:reset": "tsx src/seed/index.ts --reset"

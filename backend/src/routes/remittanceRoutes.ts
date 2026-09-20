@@ -6,7 +6,6 @@ import {
   submitRemittanceTransaction,
 } from '../controllers/remittanceController.js';
 import { requireJwtAuth, requireScopes } from '../middleware/jwtAuth.js';
-import { idempotencyMiddleware } from '../middleware/idempotency.js';
 import { validate } from '../middleware/validation.js';
 import {
   createRemittanceSchema,
@@ -76,7 +75,6 @@ router.post(
   requireJwtAuth,
   requireScopes('write:remittances'),
   validate(createRemittanceSchema),
-  idempotencyMiddleware,
   createRemittance,
 );
 
@@ -232,7 +230,6 @@ router.post(
   '/:id/submit',
   requireJwtAuth,
   requireScopes('write:remittances'),
-  idempotencyMiddleware,
   submitRemittanceTransaction,
 );
 
