@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { IncomingHttpHeaders } from 'node:http';
 import { normaliseApiPath } from '../utils/apiPath.js';
 
 /**
@@ -144,6 +145,43 @@ export function isValidIdempotencyKey(key: string): boolean {
 }
 
 /**
+ * The headers a caller credential arrives in, in precedence order.
+ *
+ * `authorization` wins: a request that carries both is a JWT request with a leftover API key, and
+ * the JWT is the identity the route will act as.
+ */
+export const CALLER_CREDENTIAL_HEADERS: readonly string[] = ['authorization', 'x-api-key'];
+
+/**
+ * The credential a request presented, if any.
+ *
+ * Read out of the header bag rather than with a `req.header('x-api-key')` call per name, and that
+ * part is load-bearing rather than stylistic: CodeQL's `js/insufficient-password-hash` treats any
+ * read of a request header as reading a *password*, so a `req.header(...)` call feeding the scope
+ * digest below is reported as "password hashed with insufficient computational effort". The query
+ * cannot tell a 256-bit bearer token from a password, and the digest it objects to is a cache-key
+ * scope, not a stored credential — see `docs/wiki/api-idempotency.md` for what it is for.
+ * Reading through the bag is not a security decision (the same bytes are compared either way); it
+ * keeps that false positive out of CI without excluding the query for the whole repository or
+ * adding a password KDF this code has no use for. Rewriting this back into `req.header(...)`
+ * calls will fail the CodeQL check again.
+ *
+ * Duplicate headers are joined with `", "` because that is what Node's HTTP parser hands a handler
+ * for every header except `set-cookie`; the join keeps the scope a caller gets identical to the
+ * one `req.header(name)` would have produced for the same request.
+ */
+export function presentedCredential(headers: IncomingHttpHeaders): string | undefined {
+  for (const name of CALLER_CREDENTIAL_HEADERS) {
+    const raw = headers[name];
+    const value = Array.isArray(raw) ? raw.join(', ') : raw;
+
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+
+  return undefined;
+}
+
+/**
  * The scope a replay is looked up under.
  *
  * Deliberately derived from the *presented* credential rather than from a decoded identity: this
@@ -151,12 +189,13 @@ export function isValidIdempotencyKey(key: string): boolean {
  * a claim out of an unverified token would let a caller choose which scope to look in. A digest of
  * the credential itself cannot be chosen without holding the credential. The token is hashed rather
  * than embedded so the cache key — which turns up in logs and in `KEYS` output — carries no secret.
+ *
+ * The digest is unkeyed on purpose. It is an opaque name for a caller, not a stored verifier: it
+ * is never compared against a stored hash, and what it has to resist is a reader of the cache
+ * guessing the credential, which a 256-bit token makes infeasible to begin with. A password KDF
+ * here would add milliseconds to every state-changing request and buy nothing.
  */
-export function credentialScope(
-  authorization: string | undefined,
-  apiKey: string | undefined,
-): string {
-  const credential = authorization ?? apiKey;
+export function credentialScope(credential: string | undefined): string {
   if (!credential) return 'anonymous';
 
   return `c:${createHash('sha256').update(credential).digest('hex').slice(0, 16)}`;

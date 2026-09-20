@@ -147,6 +147,30 @@ export function redactString(text: string): string {
 }
 
 /**
+ * Escape a string so it cannot forge or rewrite a log entry.
+ *
+ * Messages are routinely assembled out of request data — a dispute resolution note, a loan
+ * rejection reason, a notification title rendered from a user's profile. Rendered raw into a
+ * line-oriented log, a `\n` in that data starts a *new* log line that a reader cannot tell apart
+ * from one the service wrote, which is how log entries get forged and how an injected terminal
+ * escape sequence rewrites whatever displays the log.
+ *
+ * Escaping rather than deleting is deliberate: `\n` in the output says the caller sent a line
+ * break, where silently dropping it would leave a log line that lies about its input.
+ *
+ * `JSON.stringify` is the escaper because a JSON string body already has the right semantics for
+ * one log line — line breaks, other control characters, quotes and backslashes all become their
+ * escape sequences. The surrounding quotes are trimmed back off so an ordinary message still
+ * reads as an ordinary message (`'Loan approved'` stays `Loan approved`).
+ */
+export function escapeLogText(text: string): string {
+  // No early return for the trivial case: `JSON.stringify('')` is `'""'`, so trimming the quotes
+  // already yields the empty string, and a branch that handed the raw argument back would leave a
+  // path through this function that is not escaped at all.
+  return JSON.stringify(text).slice(1, -1);
+}
+
+/**
  * Walk a value and replace anything sensitive.
  *
  * Objects are copied rather than mutated: the same `req` can be passed to a logger and then
@@ -186,14 +210,20 @@ export function redactValue(
 
   if (value instanceof Date) return value;
 
-  const result: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-    result[key] = SENSITIVE_FIELD_PATTERN.test(key)
-      ? REDACTED
-      : redactValue(nested, depth + 1, seen);
-  }
-
-  return result;
+  // Built with `Object.fromEntries` rather than by assigning into a fresh object.
+  //
+  // The keys come from the value being redacted, and nothing stops a request body from carrying a
+  // `__proto__` key. `result['__proto__'] = {...}` does not create a key: it invokes the setter
+  // inherited from `Object.prototype` and sets the *prototype* of the copy, so a caller would be
+  // choosing what the object that gets logged inherits from. `Object.fromEntries` defines own
+  // data properties instead, which leaves `__proto__` as an ordinary key and leaves the shape of
+  // the copy under this module's control.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nested]): [string, unknown] => [
+      key,
+      SENSITIVE_FIELD_PATTERN.test(key) ? REDACTED : redactValue(nested, depth + 1, seen),
+    ]),
+  );
 }
 
 /**

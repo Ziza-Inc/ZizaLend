@@ -68,6 +68,7 @@ describe('idempotency middleware', () => {
 
     req = {
       header: jest.fn() as unknown as Request['header'],
+      headers: {},
       method: 'POST',
       path: '/api/remittances',
       originalUrl: '/api/remittances',
@@ -172,11 +173,7 @@ describe('idempotency middleware', () => {
 
   it('scopes the cache key to the caller, so one caller cannot read another\u2019s response', async () => {
     withKey('shared-key-0001');
-    asMock(req.header).mockImplementation((name: string) => {
-      if (name === 'Idempotency-Key') return 'shared-key-0001';
-      if (name === 'authorization') return 'Bearer token-a';
-      return undefined;
-    });
+    req.headers = { authorization: 'Bearer token-a' };
 
     await idempotencyMiddleware(req as Request, res as Response, next);
 
@@ -187,6 +184,24 @@ describe('idempotency middleware', () => {
     );
     // The credential is hashed, not embedded: the cache key shows up in logs and KEYS output.
     expect(writtenKey).not.toContain('token-a');
+  });
+
+  it('scopes an API-key caller too, and never mixes the two credentials up', async () => {
+    withKey('shared-key-0002');
+    req.headers = { 'x-api-key': 'api-key-b' };
+
+    await idempotencyMiddleware(req as Request, res as Response, next);
+    const apiKeyScope = [...store.keys()][0];
+    expect(apiKeyScope).toMatch(/^idemp:POST:\/remittances:c:[0-9a-f]{16}:shared-key-0002/);
+
+    // Same key, same route, but a JWT instead of the API key: a different scope, so the two
+    // callers cannot read each other's responses.
+    jest.restoreAllMocks();
+    store = installFakeCache();
+    req.headers = { authorization: 'Bearer token-a' };
+
+    await idempotencyMiddleware(req as Request, res as Response, next);
+    expect([...store.keys()][0]).not.toBe(apiKeyScope);
   });
 
   it('scopes the cache key to the route, so two endpoints reusing a key do not collide', async () => {

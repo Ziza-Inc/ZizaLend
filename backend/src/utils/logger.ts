@@ -1,6 +1,12 @@
 import winston from 'winston';
 import { getRequestId } from './requestContext.js';
-import { REDACTED, isSensitiveField, redactForLogging, redactString } from './redaction.js';
+import {
+  REDACTED,
+  escapeLogText,
+  isSensitiveField,
+  redactForLogging,
+  redactString,
+} from './redaction.js';
 
 const levels = {
   error: 0,
@@ -129,15 +135,21 @@ const withContext = (context: LogContext = {}) => {
   if (context.userId) baseMeta.userId = context.userId;
   if (context.loanId) baseMeta.loanId = context.loanId;
 
+  // Messages are escaped here, at the point where caller data becomes a log entry.
+  //
+  // This is the path request-scoped logging takes, so every message assembled out of a request
+  // body — a rejection reason, a dispute note, an email subject — passes through it. Escaping
+  // line breaks and other control characters is what stops a caller from writing a log line the
+  // service did not write, or from driving the terminal that is displaying the log.
   return {
     info: (message: string, meta?: unknown) =>
-      logger.info(message, { ...baseMeta, ...(meta as Record<string, unknown>) }),
+      logger.info(escapeLogText(message), { ...baseMeta, ...(meta as Record<string, unknown>) }),
     warn: (message: string, meta?: unknown) =>
-      logger.warn(message, { ...baseMeta, ...(meta as Record<string, unknown>) }),
+      logger.warn(escapeLogText(message), { ...baseMeta, ...(meta as Record<string, unknown>) }),
     error: (message: string, meta?: unknown) =>
-      logger.error(message, { ...baseMeta, ...(meta as Record<string, unknown>) }),
+      logger.error(escapeLogText(message), { ...baseMeta, ...(meta as Record<string, unknown>) }),
     http: (message: string, meta?: unknown) =>
-      logger.http(message, { ...baseMeta, ...(meta as Record<string, unknown>) }),
+      logger.http(escapeLogText(message), { ...baseMeta, ...(meta as Record<string, unknown>) }),
   };
 };
 

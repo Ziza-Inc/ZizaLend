@@ -13,6 +13,7 @@ import {
   idempotencyCacheKey,
   inFlightLockKey,
   normaliseApiPath,
+  presentedCredential,
   requiresIdempotencyKey,
 } from './idempotencyPolicy.js';
 
@@ -78,7 +79,7 @@ export const idempotencyMiddleware = async (
   const cacheKey = idempotencyCacheKey({
     method: req.method,
     path,
-    scope: credentialScope(req.header('authorization'), req.header('x-api-key')),
+    scope: credentialScope(presentedCredential(req.headers)),
     key,
   });
 

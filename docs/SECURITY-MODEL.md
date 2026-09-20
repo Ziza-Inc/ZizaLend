@@ -230,9 +230,23 @@ stacks — is scanned for:
 | A Stellar secret seed | `S…` (56 base32 characters) |
 | A JWT | `eyJ….….…` |
 
+### Messages are escaped, so they cannot forge a log line
+
+Messages are routinely assembled out of request data: a loan rejection reason, a
+dispute resolution note, a notification title rendered from a profile. Written
+into a line-oriented log as-is, a `\n` in that data starts a *new* line that a
+reader cannot tell apart from one the service wrote, and an ANSI escape sequence
+in it rewrites whatever is displaying the log. Request-scoped messages therefore
+go through `escapeLogText` in the same module as they enter the logger: `\n`,
+`\r`, other control characters, quotes and backslashes become their JSON escape
+sequences. Escaping rather than deleting is deliberate — the line break the
+caller sent stays visible in the output, where dropping it would leave a log line
+that misrepresents its input.
+
 Tests: `backend/src/utils/__tests__/redaction.test.ts` asserts a known token is
-absent from the serialised output of a transport added *after* start-up, and
-`backend/src/tests/auditLog.test.ts` asserts the same for the recorded audit
+absent from the serialised output of a transport added *after* start-up, that a
+message carrying a line break reaches a transport escaped and still on one line,
+and `backend/src/tests/auditLog.test.ts` asserts the same for the recorded audit
 payload.
 
 ---

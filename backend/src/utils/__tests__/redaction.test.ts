@@ -4,6 +4,7 @@ import winston from 'winston';
 import {
   REDACTED,
   REDACTION_DESCRIPTIONS,
+  escapeLogText,
   isSensitiveField,
   redactForLogging,
   redactString,
@@ -126,6 +127,20 @@ describe('redactForLogging', () => {
     expect(output.res?.req).toBe('[Circular]');
   });
 
+  it('does not let a caller choose the prototype' + ' of the redacted copy', () => {
+    // `{ __proto__: {...} }` in a request body is an own key by the time it reaches us, and
+    // assigning it into a plain object would set the prototype instead of creating a key.
+    const attackerControlled = JSON.parse('{"__proto__":{"polluted":true}}') as Record<
+      string,
+      unknown
+    >;
+    const output = redactForLogging(attackerControlled) as Record<string, unknown>;
+
+    expect(Object.getPrototypeOf(output)).toBe(Object.prototype);
+    expect(Object.keys(output)).toContain('__proto__');
+    expect(Object.prototype).not.toHaveProperty('polluted');
+  });
+
   it('agrees with itself about what a sensitive field is', () => {
     for (const name of ['password', 'refreshToken', 'x-api-key', 'signedTxXdr', 'authorization']) {
       expect(isSensitiveField(name)).toBe(true);
@@ -140,6 +155,29 @@ describe('redactForLogging', () => {
     for (const description of REDACTION_DESCRIPTIONS) {
       expect(description).toMatch(/credential|token|password|key|JWT|bearer/i);
     }
+  });
+});
+
+describe('escapeLogText', () => {
+  it('escapes a line break so a message cannot start a log line of its own', () => {
+    expect(escapeLogText('approved\nlevel=error forged=true')).toBe(
+      'approved\\nlevel=error forged=true',
+    );
+  });
+
+  it('escapes a carriage return and a terminal escape sequence', () => {
+    expect(escapeLogText('a\rb')).toBe('a\\rb');
+    expect(escapeLogText('\u001b[31mred')).toBe('\\u001b[31mred');
+  });
+
+  it('escapes quotes and backslashes so the escaping can be read back', () => {
+    expect(escapeLogText('he said "no"')).toBe('he said \\"no\\"');
+    expect(escapeLogText('C:\\tmp')).toBe('C:\\\\tmp');
+  });
+
+  it('leaves an ordinary message reading as an ordinary message', () => {
+    expect(escapeLogText('Loan approved')).toBe('Loan approved');
+    expect(escapeLogText('')).toBe('');
   });
 });
 
@@ -197,6 +235,37 @@ describe('the logger boundary', () => {
     }
 
     expect(lines.join('\n')).not.toContain(JWT);
+  });
+
+  it('escapes line breaks in a request-scoped message before any transport sees it', () => {
+    // Asserted on the record rather than on the serialised line: a JSON transport escapes a raw
+    // newline itself, which would hide whether this boundary did anything.
+    const messages: unknown[] = [];
+    const captureMessage = winston.format((info) => {
+      messages.push(info.message);
+      return info;
+    });
+    const transport = new winston.transports.Stream({
+      stream: new Writable({
+        write(_chunk: Buffer, _encoding, callback) {
+          callback();
+        },
+      }),
+      format: captureMessage(),
+    });
+    logger.add(transport);
+
+    try {
+      const scoped = logger.withContext({ requestId: 'req-1' });
+      scoped.info('note: first\nlevel=error second', { userId: 'u-1' });
+      scoped.error('failure: a\rb');
+    } finally {
+      logger.remove(transport);
+    }
+
+    // Escaped rather than dropped: the line break the caller sent is still visible, and it is no
+    // longer a line boundary a reader would trust.
+    expect(messages).toEqual(['note: first\\nlevel=error second', 'failure: a\\rb']);
   });
 
   it('redacts for a transport added after start-up', () => {
