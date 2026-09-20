@@ -60,8 +60,16 @@ function ensureRpcUrlMatchesNetwork(network: StellarNetwork, rpcUrl: string): vo
 function ensurePassphraseMatchesNetwork(network: StellarNetwork, passphrase: string): void {
   const expected = STELLAR_DEFAULTS[network].passphrase;
   if (passphrase !== expected) {
+    // The mismatch names the network instead of printing either passphrase.
+    //
+    // A network passphrase is public — it is the network's identifier, and the value for each
+    // network is documented in `docs/ENVIRONMENT.md` — but this message is thrown at start-up and
+    // therefore logged, and a log scanner cannot tell a value that looks like a credential from
+    // one that is not. The operator still gets what the message is for: which variable to fix,
+    // and which network's value to use.
     throw new Error(
-      `STELLAR_NETWORK_PASSPHRASE does not match STELLAR_NETWORK="${network}". Expected "${expected}".`,
+      `STELLAR_NETWORK_PASSPHRASE does not match STELLAR_NETWORK="${network}". Use the ` +
+        'passphrase documented for that network in docs/ENVIRONMENT.md.',
     );
   }
 }
