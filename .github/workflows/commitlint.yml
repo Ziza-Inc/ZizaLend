@@ -39,7 +39,7 @@ jobs:
         # rules re-resolves the CLI while an ordinary commit reuses the tarballs already
         # downloaded. `~/.npm` is npm's content-addressed cache, so a newer CLI release is an
         # addition to it rather than a miss.
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.npm
           key: commitlint-npm-${{ runner.os }}-${{ hashFiles('commitlint.config.js') }}
