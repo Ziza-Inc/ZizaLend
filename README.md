@@ -1,4 +1,6 @@
 <div align="center">
+  <img src="frontend/public/images/logo.png" alt="ZizaLend Logo" width="600" />
+  <br/><br/>
   <img src="https://img.shields.io/badge/ZizaLend-DeFi%20Lending-7C3AED?style=for-the-badge&logo=stellar&labelColor=0D0D12" alt="ZizaLend" />
 
   <h3><strong>Every transfer builds your future</strong></h3>
