@@ -123,7 +123,7 @@ jobs:
           fi
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.check-backend-sarif.outputs.exists == 'true'
         with:
           sarif_file: 'trivy-results.sarif'
@@ -165,7 +165,7 @@ jobs:
           fi
 
       - name: Upload frontend Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.check-frontend-sarif.outputs.exists == 'true'
         with:
           sarif_file: 'frontend-trivy-results.sarif'
